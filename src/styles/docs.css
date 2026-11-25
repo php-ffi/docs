@@ -1,0 +1,104 @@
+/*
+ * Starlight theme: maps the tokens of tokens.css onto Starlight's variables and
+ * sets the content typography. Starlight's own styles live in cascade layers,
+ * so these unlayered rules win without extra specificity.
+ */
+
+:root {
+    --sl-font: var(--font-text);
+    --sl-font-mono: var(--font-mono);
+    --sl-nav-height: 4.5rem;
+    --sl-content-width: 48rem;
+    --sl-sidebar-width: 17rem;
+
+    --sl-color-white: var(--fg);
+    --sl-color-gray-1: var(--fg);
+    --sl-color-gray-2: var(--fg-2);
+    --sl-color-gray-3: var(--dim);
+    --sl-color-gray-5: var(--line);
+    --sl-color-gray-6: var(--bg-2);
+    --sl-color-gray-7: var(--bg-2);
+    --sl-color-black: var(--bg);
+
+    --sl-color-accent: var(--c-orange);
+    --sl-color-text: var(--fg-2);
+    --sl-color-text-accent: var(--accent);
+    --sl-color-text-invert: var(--c-black);
+    --sl-color-bg: var(--bg);
+    --sl-color-bg-nav: var(--bg);
+    --sl-color-bg-sidebar: var(--bg);
+    --sl-color-bg-inline-code: var(--bg-2);
+    --sl-color-bg-accent: var(--c-mustard);
+    --sl-color-hairline: var(--line);
+    --sl-color-hairline-light: var(--line);
+    --sl-color-hairline-shade: var(--line);
+}
+
+:root,
+:root[data-theme='dark'] {
+    --sl-color-gray-4: #6b6259;
+    --sl-color-accent-low: #3b2a17;
+    --sl-color-accent-high: var(--c-mustard);
+}
+
+:root[data-theme='light'] {
+    --sl-color-gray-4: #9a8c70;
+    --sl-color-accent-low: #ead2a8;
+    --sl-color-accent-high: #7a320a;
+}
+
+/* Header and sidebar: no tinted panels, a single hairline. */
+header.header { border-bottom: 1px solid var(--line); }
+.sidebar-pane { border-inline-end: 1px solid var(--line); }
+
+/* Sidebar: group captions as mono labels, links in the text face. */
+.sidebar-content summary .group-label .large,
+.sidebar-content .top-level > li > details > summary .group-label span {
+    font: 600 .7rem/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: .2em; color: var(--dim);
+}
+.sidebar-content a { font-size: .95rem; }
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover {
+    background: none; color: var(--accent); font-weight: 700;
+    box-shadow: inset 3px 0 0 var(--c-orange); border-radius: 0;
+}
+
+/* Content typography. */
+.sl-markdown-content { font-size: 1.05rem; line-height: 1.7; }
+.sl-markdown-content :is(h2, h3, h4) { font-family: var(--font-display); font-weight: 400; color: var(--fg); letter-spacing: 0; }
+.sl-markdown-content h2 { font-size: 2rem; line-height: 1.15; }
+.sl-markdown-content .level-h2 { margin-top: 3rem; padding-top: 1rem; border-top: 2px solid var(--rule); }
+.sl-markdown-content h3 { font-size: 1.45rem; margin-top: 2rem; }
+.sl-markdown-content h4 { font-size: 1.15rem; }
+.sl-markdown-content a { color: var(--fg); text-decoration-color: var(--c-orange); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.sl-markdown-content a:hover { color: var(--link-hover); }
+.sl-markdown-content :not(pre) > code {
+    font-size: .85em; padding: .1em .35em; border-radius: 4px;
+    background: var(--bg-2); color: var(--fg); border: 1px solid var(--line);
+}
+.sl-markdown-content strong { color: var(--fg); }
+
+/* Tables: rules only, mono captions. */
+.sl-markdown-content table { border-collapse: collapse; font-size: .95rem; }
+.sl-markdown-content :is(th, td) { border: 0; border-bottom: 1px solid var(--line); padding: .6rem .9rem .6rem 0; background: none; }
+.sl-markdown-content th { font: 600 .7rem/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: .15em; color: var(--dim); border-bottom: 2px solid var(--rule); }
+
+/* Asides: a coloured bar instead of a tinted box. */
+.starlight-aside { background: var(--bg-2); border: 0; border-inline-start: 4px solid var(--c-teal); border-radius: 0 var(--radius) var(--radius) 0; }
+.starlight-aside--tip { border-inline-start-color: var(--c-teal); }
+.starlight-aside--note { border-inline-start-color: var(--c-mustard); }
+.starlight-aside--caution { border-inline-start-color: var(--c-orange); }
+.starlight-aside--danger { border-inline-start-color: var(--c-red); }
+.starlight-aside__title { font: 600 .75rem var(--font-mono); text-transform: uppercase; letter-spacing: .15em; color: var(--fg); }
+.starlight-aside__icon { display: none; }
+
+/* Table of contents. */
+starlight-toc h2, mobile-starlight-toc .toggle { font: 600 .7rem var(--font-mono); text-transform: uppercase; letter-spacing: .2em; color: var(--dim); }
+starlight-toc a[aria-current='true'] { color: var(--accent); }
+
+/* Pagination. */
+.pagination-links a { border: 1px solid var(--line); border-radius: var(--radius); box-shadow: none; }
+.pagination-links a:hover { border-color: var(--c-orange); }
+.pagination-links .link-title { font-family: var(--font-display); color: var(--fg); }
+
+:focus-visible { outline-color: var(--c-orange); }

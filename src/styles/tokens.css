@@ -1,0 +1,79 @@
+/*
+ * Design tokens of the site ("Hi-fi" style): palette, fonts, sizes.
+ * Shared by the landing page and the documentation theme.
+ *
+ * The theme is selected with `data-theme` on <html> ("dark" | "light"), the same
+ * attribute and storage key Starlight uses, so the choice is shared by all pages.
+ */
+
+:root {
+    /* Fixed palette. */
+    --c-black: #1b1917;
+    --c-panel: #262320;
+    --c-cream: #f1e4c6;
+    --c-red: #c8322b;
+    --c-orange: #e2672a;
+    --c-mustard: #e9ad2c;
+    --c-teal: #2f8f87;
+
+    /* Fonts. */
+    --font-display: 'Righteous', 'Arial Rounded MT Bold', sans-serif;
+    --font-text: 'Roboto Slab', Georgia, serif;
+    --font-mono: 'Geist Mono Variable', ui-monospace, Consolas, monospace;
+
+    /* Spacing and shapes. */
+    --pad: clamp(1.25rem, 4vw, 3rem);
+    --page: 90rem;
+    --radius: 6px;
+    --stripe: 22px;
+}
+
+/* Dark is the default. */
+:root,
+:root[data-theme='dark'] {
+    color-scheme: dark;
+    --bg: var(--c-black);
+    --bg-2: var(--c-panel);
+    --fg: var(--c-cream);
+    --fg-2: #cfc3a8;
+    --dim: #9a9084;
+    --line: #3a3531;
+    --rule: var(--c-cream);
+    --accent: var(--c-mustard);
+    --link-hover: var(--c-mustard);
+    --underline: var(--c-orange);
+
+    --code-fg: var(--c-cream);
+    --code-comment: #9a9084;
+    --code-keyword: #f08a52;
+    --code-string: var(--c-mustard);
+    --code-number: #e5786f;
+    --code-function: #5cc2b8;
+    --code-type: #f3cf7a;
+    --code-variable: var(--c-cream);
+    --code-punct: #b8ac93;
+}
+
+:root[data-theme='light'] {
+    color-scheme: light;
+    --bg: var(--c-cream);
+    --bg-2: #e8d9b5;
+    --fg: var(--c-black);
+    --fg-2: #3d362f;
+    --dim: #6e6150;
+    --line: #cdbb93;
+    --rule: var(--c-black);
+    --accent: #a3460f;
+    --link-hover: #a3460f;
+    --underline: var(--c-orange);
+
+    --code-fg: var(--c-black);
+    --code-comment: #6e6150;
+    --code-keyword: #a3330f;
+    --code-string: #7a5300;
+    --code-number: #a8261f;
+    --code-function: #1d6b64;
+    --code-type: #7a4a00;
+    --code-variable: var(--c-black);
+    --code-punct: #5a5045;
+}

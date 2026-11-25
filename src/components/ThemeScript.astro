@@ -1,0 +1,13 @@
+---
+// Applies the stored theme before the first paint. Uses the same storage key and
+// attribute as Starlight, so the landing and the documentation share the choice.
+---
+<script is:inline>
+    (() => {
+        const stored = localStorage.getItem('starlight-theme');
+        const theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme;
+    })();
+</script>

@@ -1,0 +1,17 @@
+---
+/*
+ * Title of a documentation page with the package of its section above it.
+ */
+import { sectionOf } from '../../data/navigation';
+
+const { entry, id } = Astro.locals.starlightRoute;
+const section = sectionOf(id);
+---
+
+{section !== undefined && <p class="eyebrow">{section.package}</p>}
+<h1 id="_top">{entry.data.title}</h1>
+
+<style>
+.eyebrow { margin: 0 0 .75rem; font: 600 .7rem/1.4 var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: var(--accent); }
+h1 { margin: 0; font: 400 clamp(2.25rem, 5vw, 3.5rem)/1.05 var(--font-display); color: var(--fg); }
+</style>

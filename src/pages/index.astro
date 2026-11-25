@@ -1,0 +1,105 @@
+---
+import { Code } from 'astro:components';
+import Landing from '../layouts/Landing.astro';
+import Stripes from '../components/Stripes.astro';
+import { codeTheme } from '../code-theme';
+import { packages, github } from '../data/packages';
+import { url } from '../url';
+
+const install = 'composer require ffi/preprocessor ffi/c-parser';
+
+// Checked on PHP 8.6 against ffi/preprocessor and ffi/c-parser: prints "sqlite3" and "sqlite3_open".
+const header = `#define SQLITE_API __declspec(dllimport)
+#define SQLITE_OK 0
+
+typedef struct sqlite3 sqlite3;
+
+SQLITE_API int sqlite3_open(
+    const char *filename,
+    sqlite3 **ppDb
+);`;
+
+const program = `
+$preprocessor = new FFI\\Preprocessor\\Preprocessor();
+$parser = new FFI\\Parser\\Parser();
+
+$declarations = new SplFileInfo('sqlite3.h')
+    |> $preprocessor->process(...)
+    |> strval(...)
+    |> $parser->parse(...);
+
+foreach ($declarations as $declaration) {
+    echo $declaration->name . "\\n";
+}`;
+
+const output = `sqlite3
+sqlite3_open`;
+
+const groups = [
+    { title: 'Toolchain', items: packages.filter((p) => p.group === 'toolchain') },
+    { title: 'Utilities', items: packages.filter((p) => p.group === 'utilities') },
+];
+---
+<Landing
+    title="php-ffi — a toolchain for PHP FFI"
+    description="Preprocess and parse C headers, inspect native binaries and locate them on disk — in plain PHP, without a C compiler."
+>
+    <section class="hero">
+        <h1>
+            <span>A toolchain</span>
+            <span class="band">for PHP<Stripes class="band-stripes" size="var(--band)" /></span>
+            <span class="accent">FFI.</span>
+        </h1>
+        <div class="under">
+            <p class="lead">
+                Preprocess and parse C headers, inspect native binaries and locate them on disk —
+                in plain PHP, without a C compiler.
+            </p>
+            <div class="start">
+                <pre class="install"><span>$</span> {install}</pre>
+                <div class="links">
+                    <a class="more" href={url('parser/')}>Read the manual →</a>
+                    <a class="more quiet" href={github}>GitHub</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="index" id="packages" aria-labelledby="packages-title">
+        <div class="cap"><h2 id="packages-title">Packages</h2><span>{packages.length} packages</span></div>
+        {groups.map((group) => (
+            <div class="group">
+                <p class="group-title">{group.title}</p>
+                {group.items.map((pkg) => {
+                    const n = packages.indexOf(pkg);
+                    return (
+                        <a class={`row r${n % 5}`} href={url(pkg.docs)}>
+                            <span class="no">{String(n + 1).padStart(2, '0')}</span>
+                            <h3>{pkg.title}</h3>
+                            <p>{pkg.summary}</p>
+                            <span class="meta">{pkg.name}<br />PHP {pkg.php}+</span>
+                        </a>
+                    );
+                })}
+            </div>
+        ))}
+    </section>
+
+    <section class="example" aria-labelledby="example-title">
+        <div class="cap"><h2 id="example-title">Example</h2><span>header → preprocessor → parser → declarations</span></div>
+        <div class="cols">
+            <figure>
+                <figcaption>sqlite3.h</figcaption>
+                <Code code={header} lang="c" theme={codeTheme} />
+            </figure>
+            <figure>
+                <figcaption>example.php</figcaption>
+                <Code code={program} lang="php" theme={codeTheme} />
+            </figure>
+            <figure class="out">
+                <figcaption>Output</figcaption>
+                <pre>{output}</pre>
+            </figure>
+        </div>
+    </section>
+</Landing>

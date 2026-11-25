@@ -1,0 +1,44 @@
+---
+/*
+ * Header of the documentation pages, set like the header of the landing:
+ * brand, sections, search, GitHub, theme switch.
+ */
+import Search from 'virtual:starlight/components/Search';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+import { sections } from '../../data/navigation';
+import { github } from '../../data/packages';
+import { url } from '../../url';
+
+const current = Astro.locals.starlightRoute.id.split('/')[0];
+---
+
+<div class="header">
+    <a class="logo" href={url()}>php-ffi</a>
+    <nav class="sl-hidden md:sl-flex" aria-label="Sections">
+        {sections.filter((section) => section.header).map((section) => (
+            <a href={url(section.prefix + '/')} aria-current={section.prefix === current ? 'page' : undefined}>
+                {section.label}
+            </a>
+        ))}
+    </nav>
+    <div class="search print:hidden"><Search /></div>
+    <div class="right sl-hidden md:sl-flex print:hidden">
+        <a href={github}>GitHub</a>
+        <ThemeSelect />
+    </div>
+</div>
+
+<style>
+.header { display: flex; align-items: center; gap: 2rem; height: 100%; }
+.logo { font: 400 1.5rem var(--font-display); color: var(--fg); text-decoration: none; }
+nav, .right { gap: 1.75rem; align-items: center; font: 700 .8rem var(--font-mono); text-transform: uppercase; letter-spacing: .15em; }
+nav a, .right a { color: var(--fg); text-decoration: none; }
+nav a:hover, .right a:hover, .logo:hover { color: var(--link-hover); }
+nav a[aria-current='page'] { color: var(--accent); }
+.search { margin-left: auto; }
+.search :global(button[data-open-modal]) {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg-2); color: var(--dim);
+}
+.search :global(button[data-open-modal]:hover) { border-color: var(--dim); color: var(--fg); }
+</style>

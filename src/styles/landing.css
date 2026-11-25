@@ -1,0 +1,84 @@
+/* The landing page. Every colour, font and size comes from tokens.css. */
+
+.landing {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 var(--font-text);
+    -webkit-font-smoothing: antialiased;
+}
+
+.landing main > section { padding-left: var(--pad); padding-right: var(--pad); }
+.landing h1, .landing h2, .landing h3 { font-family: var(--font-display); font-weight: 400; margin: 0; }
+.landing pre { margin: 0; font: .85rem/1.6 var(--font-mono); overflow-x: auto; background: none !important; }
+.landing :focus-visible { outline: 3px solid var(--c-orange); outline-offset: 3px; }
+
+/* Hero: giant type, the stripes run out of the second line to the edge. */
+.hero { padding-top: 2rem; padding-bottom: 5rem; overflow: hidden; }
+.hero h1 { --band: .09em; font-size: clamp(3.75rem, 15.5vw, 15rem); line-height: .86; letter-spacing: -.02em; }
+.hero h1 > span { display: block; white-space: nowrap; }
+.hero .band { display: flex; align-items: center; gap: .2em; }
+.hero .band-stripes { flex: 1; margin-right: calc(-1 * var(--pad)); }
+.hero .accent { color: var(--accent); }
+
+.under { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-top: 3.5rem; padding-top: 1.5rem; border-top: 2px solid var(--rule); }
+.lead { margin: 0; font-size: 1.35rem; line-height: 1.45; max-width: 32rem; }
+.install { color: var(--accent); margin-bottom: 1.25rem !important; }
+.install span { color: var(--dim); user-select: none; }
+.links { display: flex; gap: 2rem; flex-wrap: wrap; }
+.more { font: 400 1.5rem var(--font-display); color: inherit; text-decoration: none; border-bottom: 3px solid var(--underline); }
+.more.quiet { border-bottom-color: var(--line); }
+.more:hover { color: var(--link-hover); }
+
+/* Section caption: label on the left, note on the right, a rule below. */
+.cap { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding-bottom: .75rem; border-bottom: 2px solid var(--rule); }
+.cap h2, .cap span, .group-title, .no, .meta, figcaption {
+    font: 600 .7rem/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: .2em; color: var(--dim);
+}
+
+/* Package index. */
+.index { padding-bottom: 6rem; scroll-margin-top: 1rem; }
+.group-title { margin: 2rem 0 0; padding-bottom: .5rem; border-bottom: 1px solid var(--line); }
+.row {
+    display: grid; grid-template-columns: 5rem 5fr 6fr 12rem; gap: 1.5rem; align-items: center;
+    padding: 1.1rem 1rem; margin: 0 -1rem; border-bottom: 1px solid var(--line);
+    color: inherit; text-decoration: none;
+}
+.row h3 { font-size: clamp(2rem, 4.2vw, 3.75rem); line-height: 1; }
+.row p { margin: 0; color: var(--fg-2); }
+.meta { text-align: right; text-transform: none; letter-spacing: .05em; }
+.row:hover, .row:focus-visible { color: var(--c-black); }
+.row:hover :is(p, .meta, .no), .row:focus-visible :is(p, .meta, .no) { color: inherit; }
+.r0:is(:hover, :focus-visible) { background: var(--c-red); color: var(--c-cream); }
+.r1:is(:hover, :focus-visible) { background: var(--c-orange); }
+.r2:is(:hover, :focus-visible) { background: var(--c-mustard); }
+.r3:is(:hover, :focus-visible) { background: var(--fg); color: var(--bg); }
+.r4:is(:hover, :focus-visible) { background: var(--c-teal); color: var(--c-cream); }
+
+/* Example: three columns divided by hairlines. */
+.example { padding-bottom: 6rem; }
+.cols { display: grid; grid-template-columns: 5fr 7fr 3fr; }
+.cols figure { margin: 0; min-width: 0; padding: 1.5rem 1.5rem 0; }
+.cols figure:first-child { padding-left: 0; }
+.cols figure + figure { border-left: 1px solid var(--line); }
+.cols figcaption { margin-bottom: 1rem; }
+.out pre { color: var(--accent); }
+
+@media (max-width: 60rem) {
+    .hero h1 > span { white-space: normal; }
+    .hero .band-stripes { min-width: 3rem; }
+    .under, .cols { grid-template-columns: 1fr; gap: 1.5rem; }
+    .lead { font-size: 1.15rem; }
+    .row { grid-template-columns: 2.5rem 1fr; gap: .25rem 1rem; align-items: baseline; }
+    .row p, .meta { grid-column: 2; text-align: left; }
+    .cols figure { padding-left: 0; padding-right: 0; }
+    .cols figure + figure { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+/* Grid items must not grow to the width of a long code line. */
+.under > *, .cols > * { min-width: 0; }
+@media (max-width: 40rem) {
+    .cap { flex-direction: column; gap: .25rem; }
+    .links { gap: 1.25rem; }
+    .more { font-size: 1.25rem; }
+}

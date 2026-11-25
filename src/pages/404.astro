@@ -1,0 +1,13 @@
+---
+import Landing from '../layouts/Landing.astro';
+import { url } from '../url';
+---
+<Landing title="Page not found — php-ffi" description="The page does not exist.">
+    <section class="hero">
+        <h1><span>404.</span></h1>
+        <div class="under">
+            <p class="lead">The page you are looking for does not exist. It may have moved while the documentation is being written.</p>
+            <div class="links"><a class="more" href={url()}>Back to the start →</a></div>
+        </div>
+    </section>
+</Landing>
