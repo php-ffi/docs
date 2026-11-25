@@ -11,27 +11,27 @@ type Colors = Record<'fg' | 'comment' | 'keyword' | 'string' | 'number' | 'funct
 
 export const codeColors: Record<'dark' | 'light', Colors> = {
     dark: {
-        bg: '#262320',
-        fg: '#f1e4c6',
+        bg: '#2c2824',
+        fg: '#e4dac6',
         comment: '#9a9084',
         keyword: '#f08a52',
         string: '#e9ad2c',
         number: '#e5786f',
         function: '#5cc2b8',
         type: '#f3cf7a',
-        variable: '#f1e4c6',
+        variable: '#e4dac6',
         punct: '#b8ac93',
     },
     light: {
-        bg: '#e8d9b5',
-        fg: '#1b1917',
+        bg: '#e8ddcb',
+        fg: '#2e2a25',
         comment: '#6e6150',
         keyword: '#a3330f',
         string: '#7a5300',
         number: '#a8261f',
         function: '#1d6b64',
         type: '#7a4a00',
-        variable: '#1b1917',
+        variable: '#2e2a25',
         punct: '#5a5045',
     },
 };

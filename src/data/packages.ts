@@ -57,15 +57,6 @@ export const packages: Package[] = [
         summary: 'Resolves the physical pathname of a binary the way the OS loader does.',
         group: 'utilities',
     },
-    {
-        title: 'Work Directory',
-        name: 'ffi/work-directory',
-        php: '7.4',
-        docs: 'utils/work-directory/',
-        repo: 'https://github.com/php-ffi/work-directory',
-        summary: 'Reads and changes the working directory of the process, thread-safe builds included.',
-        group: 'utilities',
-    },
 ];
 
 export const github = 'https://github.com/php-ffi';

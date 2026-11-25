@@ -107,7 +107,6 @@ export default defineConfig({
                         { slug: 'utils', label: 'Overview' },
                         { slug: 'utils/env', label: 'Env' },
                         { slug: 'utils/location', label: 'Location' },
-                        { slug: 'utils/work-directory', label: 'Work Directory' },
                     ],
                 },
             ],

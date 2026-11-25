@@ -8,9 +8,11 @@
 
 :root {
     /* Fixed palette. */
-    --c-black: #1b1917;
-    --c-panel: #262320;
-    --c-cream: #f1e4c6;
+    --c-black: #23201d;
+    --c-panel: #2c2824;
+    --c-cream: #e4dac6;
+    /* The cream stripe keeps the original, brighter tone. */
+    --c-stripe-cream: #f1e4c6;
     --c-red: #c8322b;
     --c-orange: #e2672a;
     --c-mustard: #e9ad2c;
@@ -35,8 +37,8 @@
     --bg: var(--c-black);
     --bg-2: var(--c-panel);
     --fg: var(--c-cream);
-    --fg-2: #cfc3a8;
-    --dim: #9a9084;
+    --fg-2: #bcb2a0;
+    --dim: #9a9184;
     --line: #3a3531;
     --rule: var(--c-cream);
     --accent: var(--c-mustard);
@@ -56,24 +58,24 @@
 
 :root[data-theme='light'] {
     color-scheme: light;
-    --bg: var(--c-cream);
-    --bg-2: #e8d9b5;
-    --fg: var(--c-black);
-    --fg-2: #3d362f;
-    --dim: #6e6150;
+    --bg: #f2ebde;
+    --bg-2: #e8ddcb;
+    --fg: #2e2a25;
+    --fg-2: #4a443c;
+    --dim: #6a6054;
     --line: #cdbb93;
-    --rule: var(--c-black);
+    --rule: #2e2a25;
     --accent: #a3460f;
     --link-hover: #a3460f;
     --underline: var(--c-orange);
 
-    --code-fg: var(--c-black);
+    --code-fg: #2e2a25;
     --code-comment: #6e6150;
     --code-keyword: #a3330f;
     --code-string: #7a5300;
     --code-number: #a8261f;
     --code-function: #1d6b64;
     --code-type: #7a4a00;
-    --code-variable: var(--c-black);
+    --code-variable: #2e2a25;
     --code-punct: #5a5045;
 }

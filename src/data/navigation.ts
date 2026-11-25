@@ -14,10 +14,9 @@ export const sections: Section[] = [
     { label: 'Parser', prefix: 'parser', package: 'ffi/c-parser', header: true },
     { label: 'Preprocessor', prefix: 'preprocessor', package: 'ffi/preprocessor', header: true },
     { label: 'Reflection', prefix: 'reflection-library', package: 'ffi/reflection-library', header: true },
-    { label: 'Utilities', prefix: 'utils', package: 'ffi/env · ffi/location · ffi/work-directory', header: true },
+    { label: 'Utilities', prefix: 'utils', package: 'ffi/env · ffi/location', header: true },
     { label: 'Env', prefix: 'utils/env', package: 'ffi/env', header: false },
     { label: 'Location', prefix: 'utils/location', package: 'ffi/location', header: false },
-    { label: 'Work Directory', prefix: 'utils/work-directory', package: 'ffi/work-directory', header: false },
 ];
 
 /** The most specific section of a page. */
