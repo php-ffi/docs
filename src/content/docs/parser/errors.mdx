@@ -1,27 +1,20 @@
 ---
 title: "Errors"
-description: "The exceptions of the parser: syntax errors, validation errors, traverser errors and failures to read the source."
+description: "The exceptions of the parser and how to show where the error is."
 sidebar:
   label: Errors
-  order: 7
+  order: 3
 ---
 
-Everything the package throws extends `FFI\Parser\Exception\ParserException`, which extends
-`\Exception`. The kind of the failure is the class, there are no error codes.
+Everything the package throws extends `FFI\Parser\Exception\ParserException`.
+The kind of failure is the class:
 
-```text
-ParserException
-├── ParseRuntimeException        the code of the header is at fault: source, offset, length
-│   ├── SyntaxErrorException
-│   └── ValidationException
-├── TraverserException           a visitor or a transformer broke the tree
-│   ├── NodeRemoveException
-│   ├── NodeReplaceException
-│   └── ChildrenSkipException
-└── InternalException            the source cannot be read or analyzed
-```
-
-Catch `ParserException` to handle everything at once, or one of the classes to tell the cases apart.
+| Class | Thrown when |
+|---|---|
+| `SyntaxErrorException` | The header is not valid, or uses an extension the [preset](../presets/) does not accept. |
+| `ValidationException` | A validator rejects the tree, e.g. `long float x;`. |
+| `InternalException` | The source cannot be read. |
+| `TraverserException` | A transformer or visitor broke the tree. |
 
 ```php
 use FFI\Parser\Exception\ParserException;
@@ -45,21 +38,12 @@ var_dump(isValid('int x'));
 // bool(false)
 ```
 
-The bases `ParserException`, `ParseRuntimeException` and `TraverserException` are abstract and the
-rest are `final`. The constructors are not public: only the library creates the exceptions.
+## Where is the error
 
-## Defects of the code
-
-`ParseRuntimeException` is thrown for a defect of the parsed code. It has three read-only
-properties that point to the place:
-
-| Property | Meaning |
-|---|---|
-| `source` | The `Phplrt\Contracts\Source\ReadableInterface` that was parsed. |
-| `offset` | The offset in bytes of the failed fragment. |
-| `length` | The size of the fragment in bytes, `null` if unknown. |
-
-`__toString()` renders the exception with the snippet of the source and a marker under the fragment:
+`SyntaxErrorException` and `ValidationException` extend
+`ParseRuntimeException`, with the read-only properties `source`, `offset`
+(in bytes) and `length` (`null` if unknown). Printing the exception shows
+the snippet of the source with a marker:
 
 ```php
 use FFI\Parser\Exception\ParseRuntimeException;
@@ -68,74 +52,40 @@ use FFI\Parser\Parser;
 try {
     new Parser()->parse("int x;\nint y y;");
 } catch (ParseRuntimeException $e) {
-    echo $e->getMessage() . ' (offset ' . $e->offset . ', length ' . $e->length . ")\n";
+    echo 'offset ' . $e->offset . "\n";
 
-    echo implode("\n", array_slice(explode("\n", (string) $e), 0, 4)) . "\n";
+    $lines = explode("\n", (string) $e);
+
+    echo implode("\n", array_slice($lines, 1, 3)) . "\n";
 }
 
-// Syntax error, unexpected "y" (T_IDENTIFIER) in the declaration, ";" expected (offset 13, length 1)
-// error[SyntaxErrorException]: Syntax error, unexpected "y" (T_IDENTIFIER) in the declaration, ";" expected
+// offset 13
 // 1 | int x;
 // 2 | int y y;
 //   |       ^
 ```
 
-The rest of the output is the stack trace.
+The printed form is the message line, the snippet, then the stack trace. The
+example shows the snippet only.
 
-### Syntax errors
+## Validation errors
 
-`SyntaxErrorException` is thrown by `Parser::parse()` when
-
-- the lexer or the parser fails: the header is not valid C23 (with the extensions of the preset);
-- the header uses an extension that the [preset](../presets/#features) does not accept. The message is
-  `Syntax error, the extension "Name" is not enabled`, and the fragment is the keyword of the extension.
-
-`Parser::validate()` never throws it: it returns `false`.
-
-### Validation errors
-
-`ValidationException` is thrown when a [validator](../validators/) rejects the tree. The tree is
-checked in full first, so the exception holds every violation:
-
-| Property | Meaning |
-|---|---|
-| `violations` | A non-empty list of `Violation`, in the order of their offsets. |
-| `message` | The message of the first violation, with `(and N more)` if there are others. |
-| `offset`, `length` | The place of the first violation. |
-
-## Traverser exceptions
-
-`TraverserException` and its subclasses are thrown when a visitor of the
-[traverser](../traverser/), including a [transformer](../transformers/) rule, breaks the tree.
-They are not about the parsed code, and are thrown at the `Parser::parse()` call, if the fault is in
-a rule you added, and at the `Traverser::traverse()` call for your own visitors.
-
-| Class | Cause |
-|---|---|
-| `NodeRemoveException` | A visitor returned `Action::Remove` for a node in a place that is not a list, such as the `name` of a declaration. |
-| `NodeReplaceException` | A visitor returned a node that does not fit the property (an `Identifier` is required, and a literal is returned), or replaced a root declaration with a node that is not a root declaration. |
-| `ChildrenSkipException` | A visitor returned `Action::SkipChildren` from `leave()`: the children have been walked already. |
-
-## Internal errors
-
-`InternalException` is thrown when the parser fails for a reason other than the code:
-
-- the source cannot be read: a file does not exist or a stream is broken, and a value that is not a
-  string, a file, a stream or a source object, such as the `Result` of the preprocessor, see
-  [usage](../usage/#preprocessed-source);
-- the source cannot be analyzed for a reason other than its code.
-
-The original error is available through `getPrevious()`.
+All violations are collected, and one `ValidationException` is thrown. Its
+message is the first violation, with `(and N more)` if there are others, and
+`violations` holds all of them (`message`, `offset`, `length`):
 
 ```php
-use FFI\Parser\Exception\InternalException;
+use FFI\Parser\Exception\ValidationException;
 use FFI\Parser\Parser;
 
 try {
-    new Parser()->parse(new SplFileInfo('missing.h'));
-} catch (InternalException $e) {
-    echo $e->getMessage() . "\n";
+    new Parser()->parse("long float a;\nint b[3](void);");
+} catch (ValidationException $e) {
+    foreach ($e->violations as $violation) {
+        echo $violation->offset . ': ' . $violation->message . "\n";
+    }
 }
 
-// The source cannot be read: "File \"missing.h\" not found"
+// 0: Invalid combination of type specifiers `long float`
+// 19: Element type of an array should not be a function
 ```

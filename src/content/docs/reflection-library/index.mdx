@@ -6,35 +6,26 @@ sidebar:
   order: 0
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+`ffi/reflection-library` reads a shared library from disk, without
+loading it, and tells what is inside: the architecture it is built for,
+the symbols it exports and the libraries it imports. This is what you
+need to know before writing an
+[`FFI::cdef()`](https://www.php.net/manual/en/ffi.cdef.php) declaration.
 
-`ffi/reflection-library` reads a shared library from disk, without loading it, and tells
-what is inside: the architecture it is built for, the symbols it exports and the
-libraries (with their symbols) it imports. Everything you need to know before writing an
-[`FFI::cdef()`](https://www.php.net/manual/en/ffi.cdef.php) declaration against it.
-
-It understands the three binary formats of the major platforms: ELF (`*.so`), PE
-(`*.dll`, `*.exe`) and Mach-O (`*.dylib`). The format is detected from the contents of the
-file, not from its extension, and you can read a Linux library on Windows or the other way
-around.
+It reads ELF (`*.so`), PE (`*.dll`, `*.exe`) and Mach-O (`*.dylib`)
+files. The format is detected from the contents, so you can read a Linux
+library on Windows and the other way around.
 
 ## Installation
 
 ```bash
-composer require --dev ffi/reflection-library
+composer require ffi/reflection-library
 ```
 
-Requires PHP 8.4 or later. The package does not need `ext-ffi`: it only reads bytes.
-
-<Aside type="note">
-The package is meant to be a development tool (IDE helpers, checks, code generation), hence
-`--dev`. Nothing prevents you from using it at runtime.
-</Aside>
+Requires PHP 8.4 or later. The package does not need `ext-ffi`: it only
+reads bytes.
 
 ## Quick start
-
-`FFI\Reflection\ReflectionLibrary` is the only entry point. Pass it a path or a library
-name:
 
 ```php
 use FFI\Reflection\ReflectionLibrary;
@@ -42,8 +33,10 @@ use FFI\Reflection\ReflectionLibrary;
 $library = new ReflectionLibrary('kernel32.dll');
 
 echo $library->getFileName() . "\n";
-echo $library->getBits() . ' bit, ' . $library->getArchitecture()?->name . "\n";
-echo count($library->getImports()) . ' imports, ' . count($library->getSymbols()) . " symbols\n";
+echo $library->getBits() . ' bit, '
+    . $library->getArchitecture()?->name . "\n";
+echo count($library->getImports()) . ' imports, '
+    . count($library->getSymbols()) . " symbols\n";
 
 var_dump($library->hasSymbol('CreateFileW'));
 
@@ -53,40 +46,30 @@ var_dump($library->hasSymbol('CreateFileW'));
 // bool(true)
 ```
 
-The numbers depend on the build of Windows.
-
-<Aside type="note" title="Examples on this site">
-Most examples use the `sqlitejdbc` binaries from the tests of the package (one build per
-platform and architecture) and refer to them by bare file name, for example
-`libsqlitejdbc.so`. The outputs were taken from those files and from system DLLs of
-Windows.
-</Aside>
+The counts depend on the build of Windows. Other examples in this
+section use the `sqlitejdbc` binaries from the tests of the package
+(`libsqlitejdbc.so`, `sqlitejdbc.dll`, `libsqlitejdbc.dylib`) and system
+DLLs.
 
 ## Finding the library
 
-The constructor accepts the same thing as `FFI::cdef()`: either a path to an existing file
-or a library name. A name is resolved to a file by
-[`ffi/location`](/utils/location/), which searches the directories the operating system
-loader searches, so `new ReflectionLibrary('kernel32.dll')` finds the system file and
-`getFileName()` returns its absolute pathname.
-
+The constructor takes what `FFI::cdef()` takes: a path to a file or a
+library name. A name is resolved to a file by
+[`ffi/location`](/utils/location/), which searches where the operating
+system loader searches. `getFileName()` returns the absolute pathname.
 If the name resolves to nothing, the constructor throws
-`LibraryNotFoundException`. See [Errors](./errors/).
+`LibraryNotFoundException`.
 
-## What the object gives you
-
-| Page | What it covers |
-|---|---|
-| [Library info](./library-info/) | Address size, endianness, architecture and kind of the file. |
-| [Exports](./exports/) | Symbols the library offers: names, addresses, forwarders, calling conventions. |
-| [Imports](./imports/) | Libraries the file depends on and the symbols it takes from each. |
-| [Formats](./formats/) | What is specific to ELF, PE and Mach-O. |
-| [Dumping](./dumping/) | Casting a library to a string. |
-| [Errors](./errors/) | The exceptions and when they are thrown. |
-
-The file is read lazily. The constructor only resolves the name, opens the file and checks
-that its format is supported. The headers are parsed on the first call of `getBits()`,
-`getArchitecture()` and the like, and the tables of imports and exports on the first call
-of `getImports()` or `getSymbols()`. The result is cached in the object. This means that a
-corrupted file is reported by the call that needs the broken part, not necessarily by the
+The file is read lazily: the constructor checks the format only, headers
+and tables are parsed on the first call that needs them and cached. A
+corrupted file is therefore reported by that call, not by the
 constructor.
+
+## Next
+
+- [Library info](./library-info/): bits, byte order, architecture.
+- [Exports](./exports/): the symbols the library offers.
+- [Imports](./imports/): the libraries it depends on.
+- [Dumping](./dumping/): the whole library as text.
+- [Errors](./errors/): the exceptions.
+- [Formats](./formats/): what is specific to ELF, PE and Mach-O.

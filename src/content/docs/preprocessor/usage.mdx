@@ -1,6 +1,6 @@
 ---
 title: "Usage"
-description: "The Preprocessor class: sources it accepts, the settings of a run and how the configuration is shared between runs."
+description: "Processing sources with Preprocessor::process() and reading the Result: output, macros and files."
 sidebar:
   label: Usage
   order: 1
@@ -8,10 +8,10 @@ sidebar:
 
 ## Sources
 
-`Preprocessor::process()` accepts whatever the phplrt source factory can read:
+`Preprocessor::process()` accepts:
 
-- a `string` is the source text itself, not a path;
-- an `SplFileInfo` is a file;
+- a `string`: the source text itself, not a path;
+- an `SplFileInfo`: a file;
 - a stream resource;
 - any `Phplrt\Contracts\Source\ReadableInterface` object.
 
@@ -21,103 +21,65 @@ use FFI\Preprocessor\Preprocessor;
 $pre = new Preprocessor();
 
 echo $pre->process(new SplFileInfo(__DIR__ . '/header.h'));
+
+// int from_disk;
 ```
 
-A file is known to the preprocessor by its real pathname. Anything else (a string, a
-stream) is known as `{entrypoint}`: that is what `__FILE__` expands to and what the
-[diagnostics](../diagnostics/) show.
+A file is known by its real pathname. A string or a stream is known
+as `{entrypoint}`: that is what `__FILE__` expands to and what the
+diagnostics show.
+
+## The result
+
+`process()` returns a `Result`, which is stringable. The run is lazy:
+it goes on while the result is read, and failures of the source are
+thrown at that moment, not by `process()`. The result can be read
+many times.
 
 ```php
 use FFI\Preprocessor\Preprocessor;
 
-echo new Preprocessor()->process("__FILE__ __LINE__\n");
+$result = new Preprocessor()->process(<<<'C'
+    #define A 1
+    #define F(x) (x)
+    int a = A;
+    C);
 
-// "{entrypoint}" 1
+echo $result . "\n";
+var_dump($result->hasMacro('F'));
+echo $result->findMacro('F')::class . "\n";
+
+// int a = 1;
+// bool(true)
+// FFI\Preprocessor\Macro\FunctionLikeMacro\CompiledFunctionLikeMacro
 ```
 
-An `#include "name.h"` in a file read from disk is searched next to that file first,
-see [file system](../filesystem/).
-
-## The run is lazy
-
-`process()` does not read the source: it returns a `Result` and the work is done while
-the result is read. Failures of the source itself (a malformed `#if`, a missing `#endif`)
-are thrown at that moment, not by `process()`. See [errors](../errors/).
-
-```php
-use FFI\Preprocessor\Exception\PreprocessorException;
-use FFI\Preprocessor\Preprocessor;
-
-$result = new Preprocessor()->process("#endif\n");
-
-echo "process() did not throw\n";
-
-try {
-    echo $result;
-} catch (PreprocessorException $e) {
-    echo $e::class . ': ' . $e->getMessage() . "\n";
-}
-
-// process() did not throw
-// FFI\Preprocessor\Directive\Exception\MisplacedDirectiveException: #endif without #if
-```
+| Method | Returns |
+|---|---|
+| `hasMacro($name)` | Whether the macro is defined when the run ends. |
+| `findMacro($name)` | The macro object, or `null`. |
+| `getMacros()` | All macros by name, predefined ones included. |
+| `getFiles()` | The first file and every included one, each once. |
+| `getDiagnostics()` | The `#error` and `#warning` messages. |
 
 ## Configuration
 
-Every constructor argument is optional, a missing one is the default of the standard.
+Every constructor argument is optional and has a name:
 
-| Argument | Type | Default |
-|---|---|---|
-| `sources` | `SourceFactoryInterface` | phplrt `SourceFactory::createDefault()`. |
-| `macros` | `MacroRepositoryInterface` | Macros that are defined before every run, over the predefined ones. |
-| `directives` | `DirectiveRepositoryInterface` | The handlers of the [supported directives](../directives/). |
-| `files` | `FileSystemInterface` | Searched after the virtual and the real file system. |
-| `diagnostic` | `DiagnosticListenerInterface` | `ThrowingDiagnosticListener`: an error throws, a warning is skipped. |
-| `clock` | `Psr\Clock\ClockInterface` | The system clock, for `__DATE__` and `__TIME__`. |
-| `maxIncludeDepth` | `int` | `200`: the number of files open at once, the first one included. |
-
-The arguments have names, so you pass only what you change:
-
-```php
-use FFI\Preprocessor\Diagnostic\DiagnosticListener\NullDiagnosticListener;
-use FFI\Preprocessor\Preprocessor;
-
-$pre = new Preprocessor(
-    diagnostic: new NullDiagnosticListener(),
-    maxIncludeDepth: 20,
-);
-```
-
-A file that includes itself is stopped by `maxIncludeDepth` with
-`FFI\Preprocessor\Directive\Exception\IncludeDepthException`.
-
-## Shared state
-
-The object has four public properties that you configure before the runs:
-
-| Property | Holds | Page |
-|---|---|---|
-| `$pre->macros` | `MacroRepository`: the macros every run starts with. | [Macros](../macros/) |
-| `$pre->directives` | The directive handlers. | [Custom directives](../custom-directives/) |
-| `$pre->files` | `VirtualFileSystem`: files and directories `#include` can see. | [File system](../filesystem/) |
-| `$pre->diagnostic` | The listener of `#error` and `#warning`. | [Diagnostics](../diagnostics/) |
-
-A run does not change them: every run works on its own copy of the macros, so a
-`#define` in one source is not seen by the next `process()` call.
+| Argument | Default |
+|---|---|
+| `diagnostic` | Throws on `#error`, skips warnings. |
+| `clock` | The system clock, for `__DATE__` and `__TIME__`. |
+| `maxIncludeDepth` | `200` files open at once. |
+| `macros`, `directives`, `files`, `sources` | The standard ones. |
 
 ```php
 use FFI\Preprocessor\Preprocessor;
 
-$pre = new Preprocessor();
-$pre->macros->define('LEVEL', '3');
-
-$first = $pre->process("#define LOCAL 5\nLEVEL LOCAL\n");
-
-echo $first;
-
-var_dump($first->hasMacro('LOCAL'), $pre->macros->find('LOCAL'));
-
-// 3 5
-// bool(true)
-// NULL
+$pre = new Preprocessor(maxIncludeDepth: 20);
 ```
+
+The object holds the settings every run starts with:
+`$pre->macros`, `$pre->files`, `$pre->directives`, `$pre->diagnostic`.
+A run works on its own copy: a `#define` in one source is not seen by
+the next `process()` call.

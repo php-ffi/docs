@@ -1,0 +1,141 @@
+---
+title: "Formats"
+description: "What is specific to ELF, PE and Mach-O files and the extra data each format adds."
+sidebar:
+  label: Formats
+  order: 6
+---
+
+The format is detected by the signature of the file, not by its
+extension, and the first driver that recognises it is used (ELF, PE,
+Mach-O). Everything on the other pages is common to all formats. Each
+format also has subclasses with extra data; reach it with `instanceof`.
+Use it only when you need it: it describes the internals of a format.
+
+| | ELF | PE | Mach-O |
+|---|---|---|---|
+| Files | `*.so` | `*.dll`, `*.exe` | `*.dylib` |
+| Byte order | In the header | Little-endian | In the header |
+| Imports list | Versioned symbols only | Complete | Complete |
+| Optional imports | Never | Delay-loaded | Weak dylibs |
+| Symbol versions | Yes | No | No |
+| Forwarders | No | Yes | Re-exports |
+| Calling convention | `Default` | 32-bit: recovered | `Default` |
+| Nameless symbols | No | By ordinal | No |
+
+A file that is none of the three (a static archive, a script) and a
+universal ("fat") Mach-O archive are rejected with
+`UnsupportedFormatException`.
+
+## ELF
+
+Exports are the defined, non-local, visible entries of the dynamic
+symbol table (`.dynsym`), as `ElfReflectionExportSymbol`:
+
+| Method | Returns |
+|---|---|
+| `getType()` | `?SymbolType`: `NoType`, `Object`, `Func`, `Section`, `File`, `Common`, `Tls`, `GnuIFunc`. |
+| `getSize()` | `int`, size of the object, `0` if unknown. |
+| `getIndex()` | `int`, row in the symbol table. |
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+use FFI\Reflection\ReflectionLibrary\Reader\ELF\ElfReflectionExportSymbol;
+
+$library = new ReflectionLibrary('libsqlitejdbc.so');
+
+$symbol = $library->getSymbol('JNI_OnLoad');
+
+if ($symbol instanceof ElfReflectionExportSymbol) {
+    echo $symbol->getType()?->name . ' ' . $symbol->getSize() . "\n";
+}
+
+// Func 1638
+```
+
+ELF resolves symbols in a flat namespace: the file lists the libraries
+it needs and the symbols it lacks, but not which library provides which
+symbol. Only symbols with a version requirement can be attributed, so
+the symbols of an `ElfReflectionImport` are a subset of what the loader
+takes, and a library without versioned symbols has an empty list.
+`getVersions()` of the import gives the versions it requires.
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('libsqlitejdbc.so');
+
+$import = $library->getImport('libc.so.6');
+
+echo implode(', ', $import->getVersions()) . "\n";
+echo $import->getSymbol('printf') . "\n";
+
+// GLIBC_2.3, GLIBC_2.2.5
+// printf@GLIBC_2.2.5
+```
+
+A file without section headers or without `.dynsym` throws
+`SymbolTableNotFoundException`.
+
+## PE
+
+Exports (`PeReflectionExportSymbol`) have `getOrdinal()`, the position
+in the export table. An export may be a forwarder (no address) or have
+no name at all (`NONAME`): then `getName()` is `null` and the symbol
+prints as `#ordinal`. In 32-bit images the calling convention is
+recovered from the decoration of the name (`_f@8` is `StdCall`,
+`@f@8` is `FastCall`, `f@@8` is `VectorCall`, other names `CDecl`).
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('C:/Windows/System32/APMon.dll');
+
+foreach ($library->getSymbols() as $symbol) {
+    if ($symbol->isAnonymous()) {
+        echo $symbol . ' ' . $symbol->getOrdinal() . "\n";
+        break;
+    }
+}
+
+// #342 342
+```
+
+Imports come from the import and the delay-load directories. A
+`PeReflectionImport` from the latter is optional, and `isDelayLoaded()`
+says so. An imported symbol has `getOrdinal()`, set only when it is
+imported by number.
+
+## Mach-O
+
+Exports come from the export trie (or the symbol table of a stripped
+image). Names carry the underscore prefix, see
+[Exports](../exports/#names). Imports are dylib load commands, and
+`MachOReflectionImport` adds:
+
+| Method | Returns |
+|---|---|
+| `getKind()` | `DylibKind`: `Load`, `LoadWeak`, `Reexport`, `LazyLoad`, `LoadUpward`. |
+| `getCurrentVersion()` | `string`, like `1213.0.0`. |
+| `getCompatibilityVersion()` | `string`. |
+| `getOrdinal()` | `int`, the one-based index of the command. |
+
+Only `LoadWeak` makes an import optional.
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('libsqlitejdbc.dylib');
+
+$import = $library->getImports()[0];
+
+echo $import->getName() . "\n";
+echo $import->getKind()->name . ' ' . $import->getCurrentVersion() . "\n";
+
+// /usr/lib/libSystem.B.dylib
+// Load 1213.0.0
+```
+
+An imported symbol has `getLibraryOrdinal()`, the ordinal of the import
+that provides it, and `isDynamicLookup()` for symbols resolved by a flat
+lookup instead of being bound to a library.

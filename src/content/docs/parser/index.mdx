@@ -9,12 +9,14 @@ sidebar:
 import { Aside } from '@astrojs/starlight/components';
 
 `ffi/c-parser` parses C headers, the ones you pass to
-[`FFI::cdef()`](https://www.php.net/manual/en/ffi.cdef.php), into a syntax tree. It is useful
-for generating wrappers and stubs, or for checking a header before loading it.
+[`FFI::cdef()`](https://www.php.net/manual/en/ffi.cdef.php), into a syntax
+tree. It is useful for generating wrappers and stubs, or for checking a
+header before loading it.
 
-The parser follows the C23 specification
+The parser follows C23
 ([ISO/IEC 9899:2024, N3220](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf))
-and, through [presets](./presets/), the extensions of GCC, Clang, MSVC and PHP FFI itself.
+and, through [presets](../presets/), the extensions of GCC, Clang, MSVC and
+PHP FFI.
 
 ## Installation
 
@@ -22,19 +24,17 @@ and, through [presets](./presets/), the extensions of GCC, Clang, MSVC and PHP F
 composer require ffi/c-parser
 ```
 
-Requires PHP 8.1 or later. The packages `ext-gmp`, `ext-bcmath` and `ext-mbstring` are
-optional: they speed up the parsing of integer constants that do not fit in a PHP integer
-and of the universal character names in string literals.
+Requires PHP 8.1 or later.
 
 <Aside type="note">
-The package supports PHP 8.1, the examples of this section use the syntax of the current
-PHP version.
+The package supports PHP 8.1, the examples of this section use the syntax
+of the current PHP version.
 </Aside>
 
 ## Quick start
 
-`Parser::parse()` takes a header and returns a list of declarations, in the order they are
-written.
+`Parser::parse()` takes a header and returns a list of declarations, in the
+order they are written.
 
 ```php
 use FFI\Parser\Parser;
@@ -46,20 +46,16 @@ echo $declarations[0]->name->value . "\n";
 // move
 ```
 
-The parser reads **preprocessed** source: it does not expand macros or follow `#include`.
-Preprocess a header with [the preprocessor](/preprocessor/) first, see
-[usage](./usage/#preprocessed-source).
+The parser reads **preprocessed** source: it does not expand macros or follow
+`#include`. Use [the preprocessor](/preprocessor/with-parser/) first.
 
-## What is in this section
+## Pages
 
 | Page | Content |
 |---|---|
-| [Usage](./usage/) | The `Parser` class: sources, options, `validate()`. |
-| [Syntax tree](./ast/) | How the tree is built, and the node classes by layer: [declarations](./ast/declarations/), [types](./ast/types/), [specifiers and attributes](./ast/specifiers/), [expressions](./ast/expressions/), [literals](./ast/literals/). |
-| [Traverser](./traverser/) | Walking and changing the tree with visitors. |
-| [Transformers](./transformers/) | Rewriting rules that run after parsing, and how to add your own. |
-| [Validators](./validators/) | Checks of C23 constraints that run after the transformers, and how to add your own. |
-| [Presets](./presets/) | What a compiler knows before the header: extensions and typedef names. |
-| [Errors](./errors/) | The exceptions the parser throws. |
-| [Limitations](./limitations/) | Syntax of the compilers that is not supported. |
-| [Benchmarks](./benchmarks/) | Parsing time of real headers. |
+| [Usage](../usage/) | Sources, the result, constructor options. |
+| [Presets](../presets/) | What a compiler knows before the header. |
+| [Errors](../errors/) | Exceptions and the position of an error. |
+| [Customizing](../customizing/) | Your own transformers and validators. |
+| [Working with the AST](../ast/) | Reading and walking the tree. |
+| [Limitations](../limitations/) | Syntax that is not supported. |

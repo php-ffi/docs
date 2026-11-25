@@ -1,13 +1,14 @@
 ---
 title: "With the parser"
-description: "Preprocess a header and parse the result with ffi/c-parser: macros from PHP, includes from virtual files, then the syntax tree."
+description: "Preprocess a header and parse the result with ffi/c-parser."
 sidebar:
   label: With the parser
-  order: 12
+  order: 5
 ---
 
-The [parser](/parser/) (`ffi/c-parser`) reads a C23 header that is already preprocessed:
-it does not know `#include`, `#if` or macros. The preprocessor does the part before it.
+The [parser](/parser/) (`ffi/c-parser`) reads C that is already
+preprocessed: it knows nothing about `#include`, `#if` or macros. The
+preprocessor does that part first.
 
 ```php
 use FFI\Parser\Parser;
@@ -30,46 +31,20 @@ $source = $pre->process('#include "api.h"');
 $declarations = new Parser()->parse((string) $source);
 
 foreach ($declarations as $declaration) {
-    echo $declaration::class . ' ' . $declaration->name->value . "\n";
+    echo $declaration->name->value . "\n";
 }
 
-// FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration\TypeDefDeclaration point_t
-// FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration\FunctionDeclaration point_len
+// point_t
+// point_len
 ```
 
-Two things to remember:
+- `Parser::parse()` does not accept a `Result`: cast it to a string.
+- A declaration name is an `Identifier` node without `__toString()`,
+  read its `value`.
 
-- `Parser::parse()` does not accept the `Result` itself. Cast it to a string,
-  `(string) $source`. Passing the object throws the parser `InternalException`
-  (`The source cannot be read`).
-- The name of a declaration is an `Identifier` node without `__toString()`, read its
-  `value`.
+With `API_VERSION` set to `2` the other branch of the header is
+parsed.
 
-With `API_VERSION` set to `2` the same header gives the other branch, and
-the parser sees only `int point_len(int x, int y);`.
-
-## Errors
-
-The two libraries throw their own exceptions: the preprocessor ones extend
-`FFI\Preprocessor\Exception\PreprocessorException`, those of the parser are described in
-its section. A failure of the preprocessor is thrown when the result is read, so the cast
-to a string has to be inside the `try` block.
-
-```php
-use FFI\Parser\Exception\SyntaxErrorException;
-use FFI\Parser\Parser;
-use FFI\Preprocessor\Exception\PreprocessorException;
-use FFI\Preprocessor\Preprocessor;
-
-$source = new Preprocessor()->process("#define T int\nT a\n");
-
-try {
-    new Parser()->parse((string) $source);
-} catch (PreprocessorException $e) {
-    echo 'preprocessor: ' . $e->getMessage() . "\n";
-} catch (SyntaxErrorException $e) {
-    echo 'parser: ' . $e->getMessage() . "\n";
-}
-
-// parser: Syntax error, unexpected end of input in the declaration, ";" expected
-```
+A failure of the preprocessor is thrown when the result is read, so
+the cast to a string belongs inside the `try` block, see
+[diagnostics and errors](../diagnostics/).

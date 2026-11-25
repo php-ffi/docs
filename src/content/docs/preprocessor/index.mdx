@@ -1,6 +1,6 @@
 ---
 title: "C preprocessor"
-description: "A C23 preprocessor written in PHP: expands macros and executes #define, #if, #include and #embed in the headers you give to FFI."
+description: "A C23 preprocessor written in PHP: expands macros and executes #define, #if, #include and #embed in C headers."
 sidebar:
   label: Overview
   order: 0
@@ -8,13 +8,14 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-`ffi/preprocessor` is a C preprocessor written in PHP. It implements the preprocessing
-phases of C23 ([ISO/IEC 9899:2024, draft N3220](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf)):
-it removes comments and line splices, executes the directives and expands the macros of a
-C source. The result is a plain C text that `FFI::cdef()` or the [parser](/parser/) can read.
+`ffi/preprocessor` is a C preprocessor written in PHP. It follows
+[C23](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf):
+it removes comments, executes the directives and expands the macros of
+a C source. The result is plain C that `FFI::cdef()` or the
+[parser](/parser/) can read.
 
-Use it when a header you want to load through FFI is not plain C: it includes other
-headers, hides declarations behind `#if`, or builds them with macros.
+Use it when a header is not plain C: it includes other headers, hides
+declarations behind `#if`, or builds them with macros.
 
 ## Installation
 
@@ -22,17 +23,14 @@ headers, hides declarations behind `#if`, or builds them with macros.
 composer require ffi/preprocessor
 ```
 
-Requires PHP 8.1 or later. The package does not need `ext-ffi`. It depends on `psr/clock`
-and `psr/log`, and on `phplrt` for reading sources.
+Requires PHP 8.1 or later. The package does not need `ext-ffi`.
 
 <Aside type="note">
-The package supports PHP 8.1, the examples in this section use the syntax of the current
-PHP version, such as `new Foo()->bar()` without parentheses.
+The package supports PHP 8.1, the examples use the syntax of the
+current PHP version.
 </Aside>
 
 ## Quick start
-
-`Preprocessor::process()` takes a source and returns a `Result`. The result is stringable:
 
 ```php
 use FFI\Preprocessor\Preprocessor;
@@ -48,22 +46,14 @@ echo $pre->process(<<<'C'
 // int area = ((4) * (4));
 ```
 
-A source is a string with the code, an `SplFileInfo`, a stream or any other phplrt
-source object, see [usage](./usage/).
+## In this section
 
-## What is in the section
-
-| Page | About |
-|---|---|
-| [Usage](./usage/) | The `Preprocessor` class, what it accepts and how it is configured. |
-| [Result](./result/) | The output, the chunks it consists of, the macros and files of a run. |
-| [Macros](./macros/) | Predefined macros and defining your own from PHP. |
-| [Directives](./directives/) | The directives that are executed: `#define`, `#undef`, `#pragma`. |
-| [Conditions](./conditionals/) | `#if`, `#ifdef`, `#elif`, `defined`, `__has_include` and the expressions. |
-| [Include and embed](./include/) | `#include`, `#embed` and how header names are searched. |
-| [Custom directives](./custom-directives/) | Adding a directive handler or a pragma processor. |
-| [File system](./filesystem/) | Where `#include` and `#embed` look for files: virtual files, mounted directories. |
-| [Diagnostics](./diagnostics/) | `#error`, `#warning` and the listeners that receive them. |
-| [Errors](./errors/) | The exceptions of the package. |
-| [Limitations](./limitations/) | What is not supported. |
-| [With the parser](./with-parser/) | Preprocess a header and parse it with `ffi/c-parser`. |
+- [Usage](./usage/): sources and the result of a run.
+- [Macros](./macros/): predefined macros and your own.
+- [Includes and files](./includes/): `#include`, include paths,
+  virtual files, `#embed`.
+- [Directives](./directives/): conditions, pragmas, custom directives.
+- [With the parser](./with-parser/): preprocess, then parse.
+- [Diagnostics and errors](./diagnostics/): `#error`, `#warning`,
+  exceptions.
+- [Limitations](./limitations/)

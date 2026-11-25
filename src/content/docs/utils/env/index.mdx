@@ -129,5 +129,8 @@ use FFI\Env\Runtime;
 assert(Runtime::assertAvailable());
 
 // Or throws AssertionError with the message of the status.
-assert(Runtime::isAvailable(), EnvironmentException::getErrorMessageFromStatus());
+assert(
+    Runtime::isAvailable(),
+    EnvironmentException::getErrorMessageFromStatus(),
+);
 ```

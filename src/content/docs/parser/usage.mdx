@@ -1,29 +1,28 @@
 ---
 title: "Usage"
-description: "The Parser class: sources it reads, the result of parse(), validate() and the constructor options."
+description: "The Parser class: accepted sources, the result of parse() and the constructor options."
 sidebar:
   label: Usage
   order: 1
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-`FFI\Parser\Parser` is the only entry point. It is `final`, takes all its options in the
-constructor and holds no state between calls, so one instance can parse any number of headers.
+`FFI\Parser\Parser` is the entry point. It takes all its options in the
+constructor, so one instance can parse any number of headers.
 
 ## Parsing
 
-`Parser::parse()` returns `list<RootDeclarationInterface>`: the declarations written at the
-root of the file, in the order they are written. A declaration with several declarators gives
-one node for each of them, and empty declarations (a lone `;`) are not listed.
+`Parser::parse()` returns a list of the declarations written at the root of
+the file, in order. A declaration with several declarators gives one node for
+each of them.
 
 ```php
 use FFI\Parser\Parser;
 
-$declarations = new Parser()->parse('int a, *b, c[2]; ;');
+$declarations = new Parser()->parse('int a, *b, c[2];');
 
 foreach ($declarations as $declaration) {
-    echo $declaration->name->value . ': ' . $declaration->type::class . "\n";
+    echo $declaration->name->value . ': '
+        . $declaration->type::class . "\n";
 }
 
 // a: FFI\Parser\Node\Type\BuiltinType\IntType
@@ -31,20 +30,18 @@ foreach ($declarations as $declaration) {
 // c: FFI\Parser\Node\Type\ArrayType\SizedArrayType
 ```
 
-What the nodes are and how to read them is described in [Syntax tree](../ast/).
+What the nodes are is described in [Working with the AST](../ast/).
 
-### Sources
+## Sources
 
-The argument of `parse()` and `validate()` is one of:
+`parse()` and `validate()` accept:
 
 | Value | Meaning |
 |---|---|
-| `string` | The code of the header. |
+| `string` | The code of the header, never a path. |
 | `SplFileInfo` | A file. |
 | `resource` | A stream. |
-| `Phplrt\Contracts\Source\ReadableInterface` | Any [phplrt](https://phplrt.org/) source object. |
-
-A string is always code, never a path: to read a file, wrap it into `SplFileInfo`.
+| `Phplrt\Contracts\Source\ReadableInterface` | A phplrt source. |
 
 ```php
 use FFI\Parser\Parser;
@@ -52,19 +49,14 @@ use FFI\Parser\Parser;
 $declarations = new Parser()->parse(new SplFileInfo('header.h'));
 ```
 
-If the source cannot be read, the parser throws `InternalException`, see [errors](../errors/).
+Comments and lines that start with `#` (line markers, `#pragma`) are
+skipped: the parser does not interpret directives.
 
-Comments are skipped, and so are the lines that start with `#` (line markers and `#pragma`
-among them): the parser does not interpret directives.
+## After the preprocessor
 
-### Preprocessed source
-
-The parser works with **preprocessed** source. Macros are not expanded and `#include` is not
-followed, so a header that relies on them has to go through
-[the preprocessor](/preprocessor/) first.
-
-`Preprocessor::process()` returns a `Result` object, and the parser does not accept it as a
-source directly: cast it to a string.
+The parser needs **preprocessed** source. `Preprocessor::process()` returns a
+`Result` object that the parser does not accept directly: cast it to a
+string. See also [the preprocessor](/preprocessor/with-parser/).
 
 ```php
 use FFI\Parser\Parser;
@@ -84,9 +76,9 @@ echo $declarations[0]->type->size->raw . "\n";
 
 ## Checking the syntax
 
-`Parser::validate()` answers whether the header is syntactically valid. It returns a `bool`
-and neither builds the tree nor runs the [transformers](../transformers/) and the
-[validators](../validators/), so it is faster than `parse()`.
+`Parser::validate()` returns `true` or `false` and builds no tree, so it is
+faster than `parse()`. It accepts every extension the grammar knows,
+whatever the preset.
 
 ```php
 use FFI\Parser\Parser;
@@ -100,48 +92,16 @@ var_dump($parser->validate('int x'));
 // bool(false)
 ```
 
-`validate()` does not know the [preset](../presets/): it accepts every extension the grammar
-knows, also those that `parse()` rejects with the given preset. It returns `false` for an
-invalid header and throws `InternalException` only when the source cannot be read.
-
 ## Constructor options
 
-All arguments are optional and are best passed by name.
+All arguments are optional, pass them by name.
 
-```php
-use FFI\Parser\Parser;
-use FFI\Parser\Preset;
+| Argument | Default |
+|---|---|
+| `preset` | `Preset::default()`, see [Presets](../presets/). |
+| `transformerRules` | The default transformers, see [Customizing](../customizing/). |
+| `validatorRules` | The default validators, see [Customizing](../customizing/). |
+| `sources` | A phplrt `SourceFactoryInterface` for strings, files, streams. |
 
-$parser = new Parser(
-    preset: Preset::gcc(),
-    // validatorRules: [...],
-    // transformerRules: [...],
-    // sources: ...,
-);
-```
-
-| Argument | Type | Default |
-|---|---|---|
-| `preset` | `?Preset` | `Preset::default()`: every extension and the typedef names of every compiler. See [Presets](../presets/). |
-| `validatorRules` | `?iterable` of `ValidatorRuleInterface` | `Validator::getDefaultRules()` without the rules that the features of the preset remove. See [Validators](../validators/). |
-| `transformerRules` | `?iterable` of `TransformerRuleInterface` | `Transformer::getDefaultRules()`. See [Transformers](../transformers/). |
-| `sources` | `?SourceFactoryInterface` | The default phplrt factory: strings, files and streams. |
-
-<Aside type="caution">
-The `validatorRules` you pass are still filtered by the preset: a rule that a feature of the
-preset removes is dropped from your list as well.
-</Aside>
-
-## Pipeline
-
-`parse()` runs three stages in a row:
-
-1. The generated parser builds the tree. A syntax error, or an extension that the preset does
-   not accept, stops here with `SyntaxErrorException`.
-2. The transformers rewrite the tree. They resolve what the grammar cannot tell without the
-   names of the types, such as `(x)-y`: a cast or a subtraction.
-3. The validators check the C23 constraints that the grammar lets through. All violations are
-   collected, and `ValidationException` is thrown once, with the first of them as the message.
-
-The result is the tree after the second stage. The traverser runs inside stages two and three;
-`Parser` does not take visitors, to walk the result use [`Traverser`](../traverser/) on your own.
+`parse()` builds the tree, runs the transformers over it, then the
+validators.

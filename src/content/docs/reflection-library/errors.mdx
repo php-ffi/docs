@@ -1,54 +1,37 @@
 ---
 title: "Errors"
-description: "The exceptions of the package, when each of them is thrown and how to catch them."
+description: "The exceptions of the package and when each of them is thrown."
 sidebar:
   label: Errors
-  order: 6
+  order: 5
 ---
 
-Every failure has its own exception class, and all of them extend
-`FFI\Reflection\Exception\ReflectionException`, which in turn extends the
-[`ReflectionException`](https://www.php.net/manual/en/class.reflectionexception.php) of PHP. Catch the base
-class to handle everything, or a branch of the hierarchy to handle a group of failures:
-
-```text
-ReflectionException (PHP)
-└── FFI\Reflection\Exception\ReflectionException
-    ├── StreamException
-    └── LibraryException
-        ├── LibraryNotFoundException
-        ├── LibraryNotReadableException
-        ├── UnsupportedFormatException
-        ├── CorruptedBinaryException
-        ├── ImportNotFoundException
-        └── SymbolException
-            ├── SymbolNotFoundException
-            └── SymbolTableNotFoundException
-```
-
-`ReflectionException`, `LibraryException` and `SymbolException` are abstract, the rest are
-final.
+All exceptions extend `FFI\Reflection\Exception\ReflectionException`,
+which extends the
+[`ReflectionException`](https://www.php.net/manual/en/class.reflectionexception.php)
+of PHP. Catch `LibraryException` for every problem with a particular
+library.
 
 | Exception | Thrown when |
 |---|---|
-| `LibraryNotFoundException` | The name passed to the constructor resolves to no file. |
-| `LibraryNotReadableException` | The file exists but cannot be opened for reading. |
-| `UnsupportedFormatException` | The file is none of ELF, PE or Mach-O, or it is a universal Mach-O archive. |
-| `CorruptedBinaryException` | The format is recognised but the contents do not add up: a structure points outside the file, a size is nonsense. |
-| `SymbolTableNotFoundException` | The file is well formed but has no table to read symbols from (for example an ELF without `.dynsym`). |
-| `ImportNotFoundException` | `getImport()` is asked for a library the file does not depend on. |
-| `SymbolNotFoundException` | `getSymbol()` is asked for a symbol that is not there. Thrown by `ReflectionLibrary` and by `ReflectionImport`. |
-| `StreamException` | A low level stream cannot be used. The facade does not throw it. |
+| `LibraryNotFoundException` | The name resolves to no file. |
+| `LibraryNotReadableException` | The file cannot be opened. |
+| `UnsupportedFormatException` | Not ELF, PE or Mach-O (or a fat Mach-O). |
+| `CorruptedBinaryException` | The contents do not add up. |
+| `SymbolTableNotFoundException` | The file has no table of symbols. |
+| `ImportNotFoundException` | `getImport()` finds no such import. |
+| `SymbolNotFoundException` | `getSymbol()` finds no such symbol. |
 
-The first three are thrown by the constructor. The rest are thrown when the data is
-read, by the first call that needs it, because the file is parsed lazily (see the
-[overview](../#what-the-object-gives-you)). `ImportNotFoundException` and
-`SymbolNotFoundException` are not defects of the file: they are lookup misses. If a missing
-name is a normal case for you, use `findImport()`, `findSymbol()` and `hasImport()`,
-`hasSymbol()`, which never throw them.
+`SymbolNotFoundException` and `SymbolTableNotFoundException` extend
+`SymbolException`, which extends `LibraryException`; so do the others
+above. `StreamException` (a low level stream cannot be used) extends
+`ReflectionException` directly and is not thrown by the facade.
+
+The first three come from the constructor. The others come from the
+call that first reads the data. Lookup misses are not defects of the
+file: use `find*()` and `has*()` when a missing name is normal.
 
 ```php
-use FFI\Reflection\Exception\ImportNotFoundException;
 use FFI\Reflection\Exception\LibraryException;
 use FFI\Reflection\Exception\LibraryNotFoundException;
 use FFI\Reflection\ReflectionLibrary;
@@ -65,29 +48,9 @@ try {
     echo $e::class . "\n" . $e->getMessage() . "\n";
 }
 
-try {
-    new ReflectionLibrary('kernel32.dll')->getImport('nope.dll');
-} catch (ImportNotFoundException $e) {
-    echo $e->getMessage() . "\n";
-}
-
 // FFI library "missing.so" does not exist
 // FFI\Reflection\Exception\CorruptedBinaryException
 // Load command #1 has an invalid size of 0 bytes
-// FFI library "C:\Windows\System32\kernel32.dll" does not depend on a library named "nope.dll"
 ```
 
-Here `truncated.dylib` is the first 100 bytes of the Mach-O `libsqlitejdbc.dylib`.
-
-## Messages
-
-| Exception | Message |
-|---|---|
-| `LibraryNotFoundException` | `FFI library "<name>" does not exist` |
-| `LibraryNotReadableException` | `FFI library "<pathname>" could not be opened for reading` |
-| `UnsupportedFormatException` | `Binary format of the "<pathname>" file is not supported by any of the 3 registered drivers` |
-| `ImportNotFoundException` | `FFI library "<pathname>" does not depend on a library named "<name>"` |
-| `SymbolNotFoundException` | `FFI library "<pathname>" does not reference a symbol named "<name>"` (for a symbol of an import, `<pathname>` is the name of the import) |
-
-The messages of `CorruptedBinaryException` and `SymbolTableNotFoundException` describe the
-particular defect, for example `The ELF image contains no dynamic symbol table (.dynsym)`.
+Here `truncated.dylib` is the first 100 bytes of a real dylib.

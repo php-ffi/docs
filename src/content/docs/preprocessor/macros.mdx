@@ -1,86 +1,40 @@
 ---
 title: "Macros"
-description: "Macros of C sources, the predefined ones, and how to define your own from PHP with define(), closures and macro objects."
+description: "Predefined macros and defining your own macros from PHP with strings and closures."
 sidebar:
   label: Macros
-  order: 3
+  order: 2
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-A source defines macros with `#define`, and the standard rules apply to them: object-like
-and function-like macros, `#` (stringification), `##` (concatenation), `__VA_ARGS__` in
-variadic macros, no repeated replacement of a macro inside its own replacement.
-
-```php
-use FFI\Preprocessor\Preprocessor;
-
-echo new Preprocessor()->process(<<<'C'
-    #define STR(x) #x
-    #define CAT(a, b) a ## b
-    #define XCAT(a, b) CAT(a, b)
-    #define N 5
-    #define V(...) f(__VA_ARGS__)
-    STR(a  +  "s") CAT(v, N) XCAT(v, N)
-    V() V(1, 2)
-    C);
-
-// "a + \"s\"" vN v5
-// f() f(1, 2)
-```
-
-Macros are kept in a `FFI\Preprocessor\Macro\MacroRepository`. The preprocessor holds the
-one every run starts with, `$pre->macros`. Define what the sources should see there.
+A source defines macros with `#define`: object-like and
+function-like, `#` and `##`, `__VA_ARGS__`, as the standard says.
+Macros you define from PHP are visible to every run of the
+preprocessor.
 
 ## Predefined macros
 
-These names are defined in `$pre->macros` from the start:
-
 | Macro | Replacement |
 |---|---|
-| `__FILE__` | The pathname of the file the name is written in, as a string literal. `{entrypoint}` for a string or a stream. |
-| `__LINE__` | The line of the name in its file. |
-| `__DATE__` | The date from the clock, `"Feb  3 2030"`. |
-| `__TIME__` | The time from the clock, `"04:05:06"`. |
-| `__STDC__` | `1` |
+| `__FILE__`, `__LINE__` | The file and the line of the name. |
+| `__DATE__`, `__TIME__` | The date and the time from the clock. |
+| `__STDC__`, `__STDC_HOSTED__` | `1` |
 | `__STDC_VERSION__` | `202311L` |
-| `__STDC_HOSTED__` | `1` |
 | `__STDC_UTF_16__`, `__STDC_UTF_32__` | `1` |
-| `__STDC_EMBED_NOT_FOUND__` | `0` |
-| `__STDC_EMBED_FOUND__` | `1` |
-| `__STDC_EMBED_EMPTY__` | `2` |
+| `__STDC_EMBED_NOT_FOUND__`, `_FOUND__`, `_EMPTY__` | `0`, `1`, `2` |
 
-`__DATE__` and `__TIME__` ask a [PSR-20](https://www.php-fig.org/psr/psr-20/) clock each
-time they are replaced, the system clock by default:
+The clock is a [PSR-20](https://www.php-fig.org/psr/psr-20/) one, the
+system clock by default. Pass your own as `clock:` to the constructor.
 
-```php
-use FFI\Preprocessor\Preprocessor;
-use Psr\Clock\ClockInterface;
+## Defining macros
 
-$clock = new class implements ClockInterface {
-    public function now(): DateTimeImmutable
-    {
-        return new DateTimeImmutable('2030-02-03 04:05:06');
-    }
-};
-
-echo new Preprocessor(clock: $clock)->process("__DATE__ __TIME__\n");
-
-// "Feb  3 2030" "04:05:06"
-```
-
-## Defining macros from PHP
-
-`MacroRepository::define(string $name, mixed $replacement = '1')` chooses the kind of the
-macro by the type of the replacement:
+`$pre->macros->define()` picks the kind of macro by the replacement:
 
 | Replacement | Macro |
 |---|---|
-| nothing | `#define NAME 1` |
-| a `string` | An object-like macro, the string is its replacement list. |
-| a `Closure` without parameters | An object-like macro, the closure is called at each replacement. |
-| a `Closure` with parameters | A function-like macro, the closure gets the arguments as they are written. |
-| a `MacroInterface` object | That macro as it is. |
+| none | `#define NAME 1` |
+| a string | Object-like, the string is the replacement. |
+| a closure without parameters | Object-like, called at each use. |
+| a closure with parameters | Function-like, gets the arguments. |
 
 ```php
 use FFI\Preprocessor\Preprocessor;
@@ -89,101 +43,23 @@ $pre = new Preprocessor();
 
 $pre->macros->define('DEBUG');
 $pre->macros->define('LEVEL', '3');
-$pre->macros->define('EMPTY', '');
 $pre->macros->define('TIMES', fn() => 7 * 6);
-$pre->macros->define('MAX', fn(string $a, string $b): string => "(($a) > ($b) ? ($a) : ($b))");
+$pre->macros->define(
+    'MAX',
+    fn(string $a, string $b) => "(($a) > ($b) ? ($a) : ($b))",
+);
 
-echo $pre->process("DEBUG LEVEL [EMPTY] TIMES MAX(1, 2)\n");
+echo $pre->process("DEBUG LEVEL TIMES MAX(1, 2)\n");
 
-// 1 3 [] 42 ((1) > (2) ? (1) : (2))
+// 1 3 42 ((1) > (2) ? (1) : (2))
 ```
 
-Any other value (`int`, `bool`, `null`, an object) is not converted to a string: it
-throws `FFI\Preprocessor\Macro\Exception\InvalidMacroException`, the same as a name that
-is not an identifier. A closure result is cast to a string, `null` is an empty text.
+A closure gets the arguments as text, as they are written, and its
+result is cast to a string. The returned text is rescanned for macros.
+A variadic parameter takes the rest of the arguments as one string,
+commas included.
 
-`$pre->macros->remove('DEBUG')` is `#undef DEBUG`. A name that is not defined is ignored.
+`$pre->macros->remove('DEBUG')` is `#undef DEBUG`.
 
-The text you return is a replacement like any other: the macros in it are expanded after
-the replacement.
-
-<Aside type="caution">
-A closure gets the arguments as text, exactly as they are written in the invocation. A
-variadic parameter takes all the rest of the arguments as one string, the commas between
-them included, it is not split into separate arguments.
-</Aside>
-
-```php
-use FFI\Preprocessor\Preprocessor;
-
-$pre = new Preprocessor();
-$pre->macros->define('LOG', fn(string $fmt, string ...$rest): string => "log($fmt | " . implode('/', $rest) . ")");
-
-echo $pre->process("LOG(\"x\", a, b)\n");
-
-// log("x" | a, b)
-```
-
-A function-like macro name that is not followed by `(` is left as it is, the same as in C.
-
-### The specific methods
-
-`define()` is a shortcut for three methods that you can call directly:
-
-- `defineByString(string $name, string $replacement)`
-- `defineByClosure(string $name, Closure $replacement)`
-- `defineByMacro(string $name, MacroInterface $macro)`
-
-A function-like macro without parameters (`NAME()`) cannot be made by a closure, as a
-closure without parameters is an object-like macro. Use `TemplateFunctionLikeMacro` with
-`defineByMacro()`.
-
-## Macro objects
-
-A macro is an object of `FFI\Preprocessor\Macro\MacroInterface`:
-
-```php
-public function replace(array $arguments, MacroContext $context): string;
-```
-
-`$arguments` is the list of the arguments as strings, empty for an object-like macro.
-`MacroContext` tells where the name is written: `$context->file` (a phplrt `FileInterface`),
-`$context->offset` and `$context->getLine()`.
-
-The package has these ready classes:
-
-| Class | Macro |
-|---|---|
-| `Macro\ObjectLikeMacro\StringObjectLikeMacro` | Replaced by a text. |
-| `Macro\ObjectLikeMacro\ClosureObjectLikeMacro` | Replaced by the result of a closure. |
-| `Macro\ObjectLikeMacro\ContextObjectLikeMacro` | Replaced by the result of a closure that gets the `MacroContext`. |
-| `Macro\FunctionLikeMacro\ClosureFunctionLikeMacro` | Function-like, implemented by a closure. |
-| `Macro\FunctionLikeMacro\TemplateFunctionLikeMacro` | Function-like, replaced by a `sprintf` format: the Nth `%s` is the Nth argument. |
-
-To make one of your own, extend `ObjectLikeMacro` or `FunctionLikeMacro`. The second one
-takes the number of the parameters and whether the last one is variadic in its
-constructor.
-
-```php
-use FFI\Preprocessor\Macro\FunctionLikeMacro\TemplateFunctionLikeMacro;
-use FFI\Preprocessor\Macro\MacroContext;
-use FFI\Preprocessor\Macro\ObjectLikeMacro;
-use FFI\Preprocessor\Preprocessor;
-
-final class WhereMacro extends ObjectLikeMacro
-{
-    public function replace(array $arguments, MacroContext $context): string
-    {
-        return $context->file->pathname . ':' . $context->getLine();
-    }
-}
-
-$pre = new Preprocessor();
-$pre->macros->defineByMacro('WHERE', new WhereMacro());
-$pre->macros->defineByMacro('TWICE', new TemplateFunctionLikeMacro('%1$s %1$s', 1));
-
-echo $pre->process("a\nWHERE TWICE(x)\n");
-
-// a
-// {entrypoint}:2 x x
-```
+A value of another type (`int`, `null`, an object) throws
+`InvalidMacroException`, as does a name that is not an identifier.

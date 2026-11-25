@@ -6,7 +6,7 @@ sidebar:
   order: 0
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 `ffi/location` finds the physical path of a shared library (`.dll`, `.so`, `.dylib`)
 by its name. It looks in the same places and in the same order as the loader that
@@ -67,7 +67,7 @@ echo Locator::pathname('kernel32') . "\n";
 An empty name and a name with a null byte give `null`.
 
 The name is searched in the directories of the platform, see
-[the search order](../search-order/). Two kinds of names are handled differently:
+[the search order](#search-order). Two kinds of names are handled differently:
 
 - A name with a directory separator is a path. It is not searched in the
   directories: the file is checked as is, a relative path is relative to the working
@@ -113,3 +113,58 @@ the arguments, not on the order of the directories.
 
 `Locator` is stateless and does not cache results: every call looks at the file
 system again.
+
+## Search order
+
+A name that is not a path is searched in the directories of the platform, in the order
+listed below. The first existing file wins, so a directory earlier in the list
+shadows the later ones. The platform is chosen by `PHP_OS_FAMILY`: `Windows`,
+`Darwin` (macOS), anything else is searched as Linux.
+
+<Tabs>
+<TabItem label="Windows">
+
+1. The directory of the PHP binary (`dirname(PHP_BINARY)`).
+2. `%SystemRoot%\System32`, then `%SystemRoot%` (the `windir` variable is used when
+   `SystemRoot` is not set).
+3. The current working directory.
+4. The directories of the `PATH` variable. Entries in double quotes are accepted.
+
+The file name is the given name with `.dll` appended when it has no extension.
+
+</TabItem>
+<TabItem label="Linux">
+
+1. The directories of `LD_LIBRARY_PATH`. Both a colon and a semicolon separate the
+   entries, as in glibc.
+2. The directories of `/etc/ld.so.conf`, including the files it pulls in with
+   `include` (relative patterns are resolved against the directory of the including
+   file, an already read file is skipped).
+3. The directories of the binary cache `/etc/ld.so.cache`, the format of the glibc
+   and the older one are both read.
+4. `/lib64`, `/usr/lib64`, `/lib`, `/usr/lib`, `/usr/local/lib`.
+5. The current working directory.
+
+The name is used as is.
+
+</TabItem>
+<TabItem label="macOS">
+
+1. The directories of `DYLD_LIBRARY_PATH`.
+2. The directories of `DYLD_FALLBACK_LIBRARY_PATH`.
+3. `$HOME/lib`.
+4. `/usr/local/lib`, `/usr/lib`, `/opt/homebrew/lib`.
+5. The current working directory.
+
+The name is used as is.
+
+</TabItem>
+</Tabs>
+
+The loader directories come first and the working directory is a fallback on
+Linux and macOS, so a library in the current directory does not replace a system
+one with the same name. On Windows the working directory is checked after the system
+directories but before `PATH`.
+
+Empty entries are skipped. Unset or empty environment variables are ignored, and so
+are missing configuration files: the search simply continues with the next directory.

@@ -60,18 +60,54 @@ export default defineConfig({
                 },
             },
             // One group per section; src/routeData.ts shows the group of the current page only.
+            // The pages are listed explicitly: the order is part of the documentation —
+            // the main use cases first, reference material (errors, limitations) last.
             routeMiddleware: './src/routeData.ts',
             sidebar: [
-                { label: 'Parser', items: [{ autogenerate: { directory: 'parser' } }] },
-                { label: 'Preprocessor', items: [{ autogenerate: { directory: 'preprocessor' } }] },
-                { label: 'Reflection Library', items: [{ autogenerate: { directory: 'reflection-library' } }] },
+                {
+                    label: 'Parser',
+                    items: [
+                        { slug: 'parser', label: 'Overview' },
+                        { slug: 'parser/usage' },
+                        { slug: 'parser/presets' },
+                        { slug: 'parser/errors' },
+                        { slug: 'parser/customizing' },
+                        { slug: 'parser/ast' },
+                        { slug: 'parser/limitations' },
+                    ],
+                },
+                {
+                    label: 'Preprocessor',
+                    items: [
+                        { slug: 'preprocessor', label: 'Overview' },
+                        { slug: 'preprocessor/usage' },
+                        { slug: 'preprocessor/macros' },
+                        { slug: 'preprocessor/includes' },
+                        { slug: 'preprocessor/directives' },
+                        { slug: 'preprocessor/with-parser' },
+                        { slug: 'preprocessor/diagnostics' },
+                        { slug: 'preprocessor/limitations' },
+                    ],
+                },
+                {
+                    label: 'Reflection Library',
+                    items: [
+                        { slug: 'reflection-library', label: 'Overview' },
+                        { slug: 'reflection-library/library-info' },
+                        { slug: 'reflection-library/exports' },
+                        { slug: 'reflection-library/imports' },
+                        { slug: 'reflection-library/dumping' },
+                        { slug: 'reflection-library/errors' },
+                        { slug: 'reflection-library/formats' },
+                    ],
+                },
                 {
                     label: 'Utilities',
                     items: [
                         { slug: 'utils', label: 'Overview' },
-                        { label: 'Env', items: [{ autogenerate: { directory: 'utils/env' } }] },
-                        { label: 'Location', items: [{ autogenerate: { directory: 'utils/location' } }] },
-                        { label: 'Work Directory', items: [{ autogenerate: { directory: 'utils/work-directory' } }] },
+                        { slug: 'utils/env', label: 'Env' },
+                        { slug: 'utils/location', label: 'Location' },
+                        { slug: 'utils/work-directory', label: 'Work Directory' },
                     ],
                 },
             ],

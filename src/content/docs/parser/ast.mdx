@@ -1,0 +1,138 @@
+---
+title: "Working with the AST"
+description: "What parse() returns, how to read names and types, and how to walk the tree with a visitor."
+sidebar:
+  label: AST
+  order: 5
+---
+
+`Parser::parse()` returns a list of declaration nodes, plain PHP objects
+from the namespace `FFI\Parser\Node`. This page covers what you need to
+start; the properties of every node are best explored with autocompletion.
+
+## The class is the kind
+
+A node has no `kind` field: its class says what it is. Use `instanceof` or
+`match (true)`. Every node has a read-only `offset`, the position of its
+first byte in the source.
+
+## Declarations
+
+The classes you meet at the root of a file:
+
+| Class | Source |
+|---|---|
+| `VariableDeclaration` | `extern const char *names[16];` |
+| `FunctionDeclaration` | `int printf(const char *, ...);` |
+| `FunctionDefinition` | `int f(int x) { return x; }`, the body is kept as text |
+| `TypeDefDeclaration` | `typedef void (*callback_t)(int);` |
+| `TagDeclaration` | `struct S { int a; };`, `enum E { A };` |
+| `StaticAssertDeclaration` | `static_assert(1, "ok");` |
+
+The first four have `name` (an `Identifier`, read `->value`) and `type`.
+Each declarator is a node of its own: `int a, *b;` gives two.
+
+## Types
+
+The `type` is a chain of nodes that follows the declarator. In
+`int *names[16]` the name has a `SizedArrayType`, which holds a
+`PointerType`, which holds an `IntType`. Other nodes you will meet:
+`FunctionType` (`returnType`, `parameters`, `isVariadic`), `NamedType` for
+a typedef name, `QualifiedType` for `const`, `StructType` and `EnumType`.
+
+```php
+use FFI\Parser\Node\Type\ArrayType\SizedArrayType;
+use FFI\Parser\Node\Type\BuiltinType\CharType;
+use FFI\Parser\Node\Type\BuiltinType\IntType;
+use FFI\Parser\Node\Type\PointerType;
+use FFI\Parser\Node\Type\TypeInterface;
+use FFI\Parser\Parser;
+
+function describe(?TypeInterface $type): string
+{
+    return match (true) {
+        $type instanceof IntType => 'int',
+        $type instanceof CharType => 'char',
+        $type instanceof PointerType => describe($type->type) . ' *',
+        $type instanceof SizedArrayType => describe($type->type)
+            . '[' . $type->size->raw . ']',
+        default => '?',
+    };
+}
+
+$declarations = new Parser()->parse('char *names[4]; int *p;');
+
+foreach ($declarations as $declaration) {
+    echo $declaration->name->value . ': '
+        . describe($declaration->type) . "\n";
+}
+
+// names: char *[4]
+// p: int *
+```
+
+Parts that may be absent are `null`: the name of an unnamed parameter, the
+value of an enumerator, the `specifiers` of a declaration.
+
+## Functions
+
+Parameters are a list: use `count()`, `foreach`, `$list[0]`. The trailing
+`...` is not in the list, it is `isVariadic`.
+
+```php
+use FFI\Parser\Parser;
+
+$function = new Parser()->parse('int f(char *s, ...);')[0];
+$parameters = $function->type->parameters;
+
+echo count($parameters) . ' ' . $parameters[0]->name->value . "\n";
+var_dump($function->type->isVariadic);
+
+// 1 s
+// bool(true)
+```
+
+## Walking the tree
+
+`FFI\Parser\Traverser` calls visitors for every node. Extend `Visitor` and
+override `enter()` (before the children) or `leave()` (after). Return `null`
+to keep the node, a node to replace it, `Action::Remove` to remove it, or
+`Action::SkipChildren` from `enter()`.
+
+```php
+use FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Traverser;
+use FFI\Parser\Traverser\Action;
+use FFI\Parser\Traverser\Context;
+use FFI\Parser\Traverser\Visitor;
+
+$collector = new class extends Visitor {
+    public array $names = [];
+
+    public function enter(
+        NodeInterface $node,
+        Context $context,
+    ): NodeInterface|Action|null {
+        if ($node instanceof DeclaratorDeclaration\FunctionDeclaration) {
+            $this->names[] = $node->name->value;
+        }
+
+        return null;
+    }
+};
+
+$header = 'typedef int id_t; int open(void); void close(id_t id);';
+
+Traverser::execute(new Parser()->parse($header), [$collector]);
+
+echo implode(', ', $collector->names) . "\n";
+
+// open, close
+```
+
+`Context::$parents` lists the nodes that hold the current one. `execute()`
+returns the declarations with replaced nodes in place and removed ones
+dropped. The nodes with children are mutable; leaves such as `Identifier`
+are `readonly`, replace them whole.

@@ -6,8 +6,8 @@ sidebar:
   order: 1
 ---
 
-Four methods of `ReflectionLibrary` describe the file as a whole. They are answered from the
-headers of the image and work the same way for ELF, PE and Mach-O.
+Four methods describe the file as a whole. They work the same way for
+every format.
 
 ```php
 use FFI\Reflection\ReflectionLibrary;
@@ -27,41 +27,16 @@ echo $library->getType()->name . "\n";
 
 | Method | Returns |
 |---|---|
-| `getFileName()` | `string`, the absolute pathname of the file that was read. |
-| `getBits()` | `int`, the size of an address in bits: `32` or `64`. |
-| `getEndianness()` | `Endianness`, the byte order of the file. |
-| `getArchitecture()` | `?ArchitectureInterface`, the instruction set, or `null` when the file names one the package does not know. |
-| `getType()` | `ReflectionLibraryType`, what kind of object the file holds. |
+| `getBits()` | `int`: `32` or `64`, the size of an address. |
+| `getEndianness()` | `Endianness::Little` or `Endianness::Big`. |
+| `getArchitecture()` | `?Architecture`, `null` for an unknown machine. |
+| `getType()` | `ReflectionLibraryType`. |
 
-## Endianness
+`Endianness::HOST` is the byte order of the machine PHP runs on.
 
-`FFI\Reflection\ReflectionLibrary\Endianness` is an enum with the cases `Little` and `Big`.
-The constant `Endianness::HOST` holds the byte order of the machine PHP runs on, so you can
-tell whether a library matches it:
-
-```php
-use FFI\Reflection\ReflectionLibrary;
-use FFI\Reflection\ReflectionLibrary\Endianness;
-
-$library = new ReflectionLibrary('libsqlitejdbc.so');
-
-var_dump($library->getEndianness() === Endianness::HOST);
-
-// bool(true)
-```
-
-PE images are always little-endian. ELF and Mach-O record the byte order in the header.
-
-## Architecture
-
-`getArchitecture()` returns a case of the `FFI\Reflection\ReflectionLibrary\Architecture`
-enum, which implements `ArchitectureInterface` (a single `name` property). The cases are
-`X86`, `Amd64`, `Arm`, `Arm64`, `RiscV`, `PowerPc`, `PowerPc64`, `Mips`, `Sparc`, `S390x`,
-`LoongArch` and `Ia64`. Not every format can carry every architecture: for example, Mach-O
-images are recognised for `X86`, `Amd64`, `Arm`, `Arm64`, `PowerPc` and `PowerPc64` only.
-
-The method returns `null` for a machine type that is not in the list, so always handle that
-case:
+`Architecture` has the cases `X86`, `Amd64`, `Arm`, `Arm64`, `RiscV`,
+`PowerPc`, `PowerPc64`, `Mips`, `Sparc`, `S390x`, `LoongArch` and
+`Ia64`. Always handle `null`:
 
 ```php
 use FFI\Reflection\ReflectionLibrary;
@@ -79,25 +54,7 @@ echo match ($library->getArchitecture()) {
 // 64-bit
 ```
 
-## Library type
-
-`FFI\Reflection\ReflectionLibrary\ReflectionLibraryType` tells what the file is:
-
-| Case | Meaning |
-|---|---|
-| `Library` | A shared library: `*.so`, `*.dll`, `*.dylib` (and a Mach-O bundle). |
-| `Executable` | A program. An ELF shared object that names an interpreter is a position independent executable and is reported as an executable. |
-| `Other` | Anything else the format allows, for example a relocatable object file. |
-
-```php
-use FFI\Reflection\ReflectionLibrary;
-
-$library = new ReflectionLibrary('C:/Windows/System32/notepad.exe');
-
-echo $library->getType()->name . "\n";
-
-// Executable
-```
-
-The package reads executables as well as libraries: their imports and exported symbols
-are described in the same way.
+`ReflectionLibraryType` has three cases: `Library` (a shared library),
+`Executable` (a program, including a position independent ELF
+executable) and `Other` (for example a relocatable object file). The
+package reads executables like libraries.

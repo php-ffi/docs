@@ -1,99 +1,134 @@
 ---
 title: "Directives"
-description: "The preprocessing directives that are executed: define, undef, error, warning, pragma, and how unknown ones are treated."
+description: "The supported directives, conditional inclusion, #pragma once, and adding a directive or a pragma handler of your own."
 sidebar:
   label: Directives
   order: 4
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-Every directive is executed by a handler registered under its name in `$pre->directives`.
-These handlers are there from the start:
-
-| Directive | Page |
+| Directive | Meaning |
 |---|---|
-| `#if`, `#ifdef`, `#ifndef`, `#elif`, `#elifdef`, `#elifndef`, `#else`, `#endif` | [Conditions](../conditionals/) |
-| `#include`, `#embed` | [Include and embed](../include/) |
-| `#define`, `#undef` | below |
-| `#error`, `#warning` | [Diagnostics](../diagnostics/) |
-| `#pragma` | below |
+| `#define`, `#undef` | Macros, see [macros](../macros/). |
+| `#include`, `#embed` | [Includes](../includes/). |
+| `#if`, `#ifdef`, `#ifndef`, `#elif`, `#elifdef`, `#elifndef`, `#else`, `#endif` | Conditions. |
+| `#error`, `#warning` | [Diagnostics](../diagnostics/). |
+| `#pragma` | `once` is executed, others go to the output. |
 
-A lone `#` (the null directive) and a line like `# 42 "file.h"`, where `#` is not followed
-by a name, are skipped.
+A lone `#` is skipped. A directive of an unknown name throws
+`UnknownDirectiveException`, unless it is in a skipped group.
 
-## Unknown directives
-
-A directive that has no handler, such as a misspelled `#defnie`, throws
-`FFI\Preprocessor\Directive\Exception\UnknownDirectiveException`. The listener of
-diagnostics does not see it, so `NullDiagnosticListener` does not hide it.
-Unknown directives in a skipped group (`#if 0`) are ignored.
-
-`#line` is one of them, see [limitations](../limitations/).
-
-## Define and undef
-
-`#define` makes object-like and function-like macros, as in C, and `#undef` removes a
-macro. The result of a run is available in [`Result`](../result/), the macros of the
-[configuration](../macros/) are what a run starts with.
-
-```php
-use FFI\Preprocessor\Preprocessor;
-
-$result = new Preprocessor()->process(<<<'C'
-    #define PI 3
-    #define AREA(r) (PI * (r) * (r))
-    #undef PI
-    #define PI 3.14
-
-    double a = AREA(2);
-    C);
-
-echo $result;
-
-// double a = (3.14 * (2) * (2));
-```
-
-The standard names that cannot be defined are not protected: `#define __FILE__ x`
-silently replaces the predefined macro. Redefining a macro in a different way is not
-reported either.
-
-A body that does not start with an identifier, or a malformed parameter list, throws
-`InvalidDirectiveBodyException`:
-
-```php
-use FFI\Preprocessor\Exception\PreprocessorException;
-use FFI\Preprocessor\Preprocessor;
-
-try {
-    echo new Preprocessor()->process("#define 1X\n");
-} catch (PreprocessorException $e) {
-    echo $e::class . ': ' . $e->getMessage() . "\n";
-}
-
-// FFI\Preprocessor\Directive\Exception\InvalidDirectiveBodyException: #define expects an identifier as a macro name
-```
-
-## Pragma
-
-`#pragma once` is executed: the file is included once and skipped each next time. Any
-other pragma is passed to the output as it is, for the next reader of the text. To react
-to a pragma yourself, see [custom directives](../custom-directives/#pragma-processors).
+## Conditions
 
 ```php
 use FFI\Preprocessor\Preprocessor;
 
 $pre = new Preprocessor();
-$pre->files->add('config.h', "#pragma once\nint config;\n");
+$pre->macros->define('API_VERSION', '3');
 
-echo $pre->process("#include \"config.h\"\n#include \"config.h\"\n#pragma pack(1)\n");
+echo $pre->process(<<<'C'
+    #if API_VERSION >= 3 && !defined(LEGACY)
+    int modern(void);
+    #elif defined(LEGACY)
+    int legacy(void);
+    #else
+    int fallback(void);
+    #endif
+    #if __has_include(<missing.h>)
+    int has_missing;
+    #endif
+    C);
 
-// int config;
-// #pragma pack(1)
+// int modern(void);
 ```
 
-<Aside type="caution">
-`#pragma once` recognizes a file by its pathname. The same real file linked or mounted
-under two virtual names is included twice. Real files are compared by their real path,
-so `dir/../dir/a.h` is the same file as `dir/a.h`.
-</Aside>
+The expression follows the standard: `defined`, `__has_include`,
+integer and character constants, all the C operators. An identifier
+left after the macros are expanded is `0`, except `true`, which is
+`1`. `&&`, `||` and `?:` skip the operand they do not need, so
+`0 && 1 / 0` is valid.
+
+An expression without a value (a syntax error, a division by zero, an
+overflow) throws `InvalidConditionException`. A missing `#endif` or a
+stray `#else` throws `MisplacedDirectiveException`.
+
+## Pragma once
+
+`#pragma once` includes a file only once. A file is recognized by its
+pathname: the same file under two virtual names is included twice.
+Any other pragma is passed to the output as it is.
+
+## Your own directive
+
+A handler returns the chunks that replace the directive:
+
+```php
+use FFI\Preprocessor\Directive\DirectiveContext;
+use FFI\Preprocessor\Directive\DirectiveHandlerInterface;
+use FFI\Preprocessor\Preprocessor;
+use FFI\Preprocessor\Runtime\Chunk\TaggedChunk\DirectiveChunk;
+use FFI\Preprocessor\Runtime\Chunk\TaggedChunk\GeneratedChunk;
+
+$pre = new Preprocessor();
+
+$pre->directives->add('note', new class implements
+    DirectiveHandlerInterface
+{
+    public function handle(
+        DirectiveChunk $directive,
+        DirectiveContext $context,
+    ): iterable {
+        yield new GeneratedChunk(
+            "/* {$directive->body} */\n",
+            $directive->source,
+            $directive->getPhysicalOffset(0),
+        );
+    }
+});
+
+echo $pre->process("#note hi there\nint x;\n");
+
+// /* hi there */
+// int x;
+```
+
+`$pre->directives` also has `replace()` and `remove()`. The context
+gives the handler the `macros`, the `files` and the `diagnostic`
+listener.
+
+To handle a pragma, add a processor to the `pragma` handler. The first
+processor that supports the body runs it, and a pragma nobody supports
+goes to the output.
+
+```php
+use FFI\Preprocessor\Directive\DirectiveContext;
+use FFI\Preprocessor\Directive\Handler\PragmaDirectiveHandler as Pragma;
+use FFI\Preprocessor\Preprocessor;
+use FFI\Preprocessor\Runtime\Chunk\TaggedChunk\DirectiveChunk;
+
+final class PackProcessor implements
+    Pragma\PragmaProcessorInterface
+{
+    public function supports(string $body): bool
+    {
+        return str_starts_with($body, 'pack');
+    }
+
+    public function apply(
+        DirectiveChunk $directive,
+        DirectiveContext $context,
+    ): iterable {
+        return []; // `#pragma pack(...)` leaves nothing
+    }
+}
+
+$pre = new Preprocessor();
+$pre->directives->replace('pragma', new Pragma([
+    new Pragma\OncePragmaProcessor(),
+    new PackProcessor(),
+]));
+
+echo $pre->process("#pragma pack(1)\n#pragma other\nint y;\n");
+
+// #pragma other
+// int y;
+```

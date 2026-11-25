@@ -1,15 +1,14 @@
 ---
 title: "Dumping"
-description: "Casting a library to a string renders it in the style of ReflectionClass and ReflectionExtension."
+description: "Casting a library to a string renders it in the style of ReflectionClass."
 sidebar:
   label: Dumping
-  order: 5
+  order: 4
 ---
 
-`ReflectionLibrary` implements `Reflector`, so it can be cast to a string. The result is a
-block of text for people to read, formatted the way `ReflectionClass` and
-`ReflectionExtension` format theirs. It is handy for a quick look at a file and for
-debugging; use the methods of the object when you need to process the data.
+`ReflectionLibrary` implements `Reflector`: casting it to a string
+renders the library the way `ReflectionClass` renders a class. It is
+handy for a quick look and for debugging.
 
 ```php
 use FFI\Reflection\ReflectionLibrary;
@@ -17,8 +16,7 @@ use FFI\Reflection\ReflectionLibrary;
 echo new ReflectionLibrary('libsqlitejdbc.so');
 ```
 
-The output looks like this (shortened here with `...`; the real one lists every symbol, 185
-lines for this file):
+The output, shortened with `...` (the real one lists every symbol):
 
 ```text
 Library [ <library> <amd64> <little-endian> 64bit libsqlitejdbc.so ] {
@@ -29,56 +27,32 @@ Library [ <library> <amd64> <little-endian> 64bit libsqlitejdbc.so ] {
 
       - Symbols [23] {
         Symbol [ log10@GLIBC_2.2.5 ]
-        Symbol [ exp@GLIBC_2.2.5 ]
         ...
       }
     }
-
     ...
   }
 
   - Symbols [68] {
     Symbol [ Java_org_sqlite_core_NativeDB_value_1blob ] { 0x0000F7F1 }
     ...
-    Symbol [ __bss_start ] { 0x00307438 }
   }
 }
 ```
 
-The `@@` line holds the full pathname of the file. The header lists, in angle brackets, the
-type, the architecture (left out when unknown) and the byte order, then the address size and
-the file name.
+The header holds the type, the architecture (omitted when unknown), the
+byte order, the address size and the file name. `@@` is the full
+pathname. Exported symbols show their address, or the target of a
+forwarder.
 
-Every imported library is an `Import` block with its symbols (`- Imports [N]` and
-`- Symbols [N]` are counters). Each exported symbol is a line with its address in
-hexadecimal between braces. For a forwarder the braces hold the target instead.
-
-## Modifiers
-
-Optional properties are printed in angle brackets before the name:
-
-| Modifier | Where | Meaning |
-|---|---|---|
-| `<optional>` | Import and imported symbol | `isOptional()` is `true`. |
-| `<forwarded>` | Exported symbol | The symbol has a forwarder. |
-| `<weak>` | Exported symbol | The binding is `Weak`. |
-| `<protected>`, `<private>`, `<internal>` | Exported symbol | The visibility is not `Public`. |
-
-Real lines from the dump of `kernel32.dll`:
+A modifier in angle brackets is printed when a property is not the
+default: `<optional>`, `<forwarded>`, `<weak>`, and `<protected>`,
+`<private>` or `<internal>` for the visibility. From `kernel32.dll`:
 
 ```text
-Symbol [ <forwarded> AcquireSRWLockExclusive ] { NTDLL.RtlAcquireSRWLockExclusive }
-Symbol [ ActivateActCtx ] { 0x00037D50 }
+Symbol [ <forwarded> AcquireSRWLockExclusive ] { NTDLL.RtlAcquire... }
 Import [ <optional> ext-ms-win-oobe-query-l1-1-0.dll ] {
-  Symbol [ <optional> QueryOOBESupport ]
 ```
 
-A symbol is printed with its native name, followed by `@version` when it has a version.
-A symbol without a name is printed as `#ordinal`.
-
-## The printer
-
-The text is produced by `FFI\Reflection\ReflectionLibrary\Printer\ReflectionPrinter`, whose
-only method is `print(ReflectionLibrary $library): string`. Casting to a string calls it.
-Like the other methods, it reads the file, so it may throw the
-[exceptions](../errors/) of a broken one.
+The first line is cut with `...`. The text is made by
+`ReflectionPrinter::print()`, which the cast calls.

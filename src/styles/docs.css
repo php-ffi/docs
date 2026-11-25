@@ -51,17 +51,24 @@
 header.header { border-bottom: 1px solid var(--line); }
 .sidebar-pane { border-inline-end: 1px solid var(--line); }
 
-/* Sidebar: group captions as mono labels, links in the text face. */
-.sidebar-content summary .group-label .large,
-.sidebar-content .top-level > li > details > summary .group-label span {
-    font: 600 .7rem/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: .2em; color: var(--dim);
+/*
+ * Sidebar: a flat list, every entry the same size and weight
+ * (Starlight makes top-level entries larger and bold by default).
+ */
+.sidebar-content a,
+.sidebar-content a .large,
+.sidebar-content .large {
+    font: 400 .95rem/1.4 var(--font-text); color: var(--fg-2);
 }
-.sidebar-content a { font-size: .95rem; }
+.sidebar-content a:hover { color: var(--link-hover); }
+.sidebar-content a { padding-block: .35rem; }
 .sidebar-content a[aria-current='page'],
 .sidebar-content a[aria-current='page']:hover {
-    background: none; color: var(--accent); font-weight: 700;
+    background: none; color: var(--accent);
     box-shadow: inset 3px 0 0 var(--c-orange); border-radius: 0;
 }
+.sidebar-content a[aria-current='page'] .large,
+.sidebar-content a[aria-current='page'] span { color: var(--accent); font-weight: 700; }
 
 /* Content typography. */
 .sl-markdown-content { font-size: 1.05rem; line-height: 1.7; }

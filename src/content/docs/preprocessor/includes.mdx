@@ -1,0 +1,91 @@
+---
+title: "Includes and files"
+description: "How #include and #embed find files: virtual files, include paths, and the search rules."
+sidebar:
+  label: Includes and files
+  order: 3
+---
+
+`#include`, `#embed` and `__has_include` look for files in
+`$pre->files`, a virtual file system you fill in. A header on disk is
+not found unless you say where to look, the same as with `-I` of a
+compiler.
+
+## Adding files
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+
+// A file by its contents
+$pre->files->add('config.h', '#define VERSION 2');
+
+// A real file under a virtual name
+$pre->files->link('lib/gl.h', __DIR__ . '/gl/gl.h');
+
+// A real directory: <common/types.h> is searched in it
+$pre->files->mount(__DIR__ . '/include');
+
+// The same under a virtual directory: <sdk/a.h>
+$pre->files->mount(__DIR__ . '/sdk', 'sdk');
+
+echo $pre->process(<<<'C'
+    #include <config.h>
+    #include <lib/gl.h>
+    #include <sdk/a.h>
+    #include <common/types.h>
+    VERSION
+    C);
+
+// int gl;
+// int sdk_a;
+// typedef int id_t;
+// 2
+```
+
+- `add($name, $source)` takes anything `process()` accepts.
+- `link($name, $realFile)` reads the file at the moment of inclusion.
+- `mount($directory, $name = '/')` exposes a directory with its
+  subdirectories, as they are at the moment of the lookup.
+
+Virtual names are case-sensitive, `/` and `\` both separate them,
+`.` and `..` are resolved, and a name never leaves the virtual root.
+`link()` and `mount()` throw `FileNotFoundException` and
+`DirectoryNotFoundException` when the target does not exist.
+
+## Search rules
+
+- `"name.h"` is searched in the directory of the including file,
+  then from the root.
+- `<name.h>` is searched from the root only.
+- The name can come from a macro: `#include CONFIG`.
+
+Files are looked up in this order: the virtual files and mounted
+directories, then the real file system (an absolute pathname, or a
+pathname relative to the including file when it is a real one).
+
+A file that is not found is an error diagnostic, which throws by
+default, see [diagnostics](../diagnostics/). Files that include
+themselves stop at `maxIncludeDepth` with `IncludeDepthException`.
+
+## Embed
+
+`#embed` replaces the directive with the bytes of a file as decimal
+numbers, ready for an array initializer. The file is searched like an
+include.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+$pre->files->add('logo.bin', "\x01\x02\xff");
+
+echo $pre->process("char logo[] = {\n#embed \"logo.bin\"\n};\n");
+
+// char logo[] = {
+// 1,2,255};
+```
+
+No line break is added after the numbers. Only the file name is
+accepted, see [limitations](../limitations/).

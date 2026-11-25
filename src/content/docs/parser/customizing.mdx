@@ -1,0 +1,150 @@
+---
+title: "Customizing"
+description: "Adding or replacing transformers and validators of the parser."
+sidebar:
+  label: Customizing
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`Parser::parse()` runs two stages over the tree it has built, and both are
+lists of rules you can change.
+
+## Transformers
+
+C cannot be parsed without knowing which names are types: `(x)-1` is a
+subtraction if `x` is a variable and a cast if `x` is a typedef name. The
+grammar picks one reading, and the **transformers** fix the tree using the
+names declared so far, those of the [preset](../presets/) included.
+
+```php
+use FFI\Parser\Parser;
+
+$source = 'int x; int y = (x)-1;';
+
+$default = new Parser();
+$bare = new Parser(transformerRules: []);
+
+foreach ([$default, $bare] as $parser) {
+    $init = $parser->parse($source)[1]->initializer;
+
+    echo new ReflectionClass($init)->getShortName() . "\n";
+}
+
+// SubExpression
+// CastExpression
+```
+
+A rule implements `FFI\Parser\Transformer\TransformerRuleInterface`:
+`getNodeClasses()` lists the node classes it accepts, and `transform()`
+returns the replacement of the node, or `null` to keep it. It may also
+change the node in place.
+
+```php
+use FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration;
+use FFI\Parser\Node\Identifier;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Transformer;
+use FFI\Parser\Transformer\TransformationContext;
+use FFI\Parser\Transformer\TransformerRuleInterface;
+
+final class PrefixFunctions implements TransformerRuleInterface
+{
+    public function getNodeClasses(): iterable
+    {
+        yield DeclaratorDeclaration\FunctionDeclaration::class;
+    }
+
+    public function transform(
+        NodeInterface $node,
+        TransformationContext $context,
+    ): ?NodeInterface {
+        $name = $node->name;
+        $node->name = new Identifier('lib_' . $name->value, $name->offset);
+
+        return null;
+    }
+}
+
+$rules = Transformer::getDefaultRules([new PrefixFunctions()]);
+$parser = new Parser(transformerRules: $rules);
+
+foreach ($parser->parse('int open(void); void close(int fd);') as $d) {
+    echo $d->name->value . "\n";
+}
+
+// lib_open
+// lib_close
+```
+
+The context also answers `isTypedefName($name)` and `isNonTypeName($name)`.
+
+<Aside type="caution">
+`transformerRules: [new PrefixFunctions()]` replaces the default rules, and
+the tree becomes ambiguous again, as in the first example.
+`Transformer::getDefaultRules([...])` returns the defaults followed by
+yours.
+</Aside>
+
+## Validators
+
+The grammar accepts some code that C forbids: `long float x;`,
+`int f(void)(void);`. The **validators** check such constraints on the
+finished tree, and `ValidationException` reports the violations, see
+[Errors](../errors/). A [preset](../presets/) removes the rules of the
+extensions it accepts.
+
+A rule implements `FFI\Parser\Validator\ValidatorRuleInterface`:
+`getNodeClasses()` as above, and `validate()` returns the `Violation`
+objects (a generator works), empty if the node is fine.
+
+```php
+use FFI\Parser\Exception\ValidationException;
+use FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Validator;
+use FFI\Parser\Validator\ValidationContext;
+use FFI\Parser\Validator\ValidatorRuleInterface;
+use FFI\Parser\Validator\Violation;
+
+final class NoLeadingUnderscore implements ValidatorRuleInterface
+{
+    public function getNodeClasses(): iterable
+    {
+        yield DeclaratorDeclaration\FunctionDeclaration::class;
+    }
+
+    public function validate(
+        NodeInterface $node,
+        ValidationContext $context,
+    ): iterable {
+        $name = $node->name;
+
+        if (str_starts_with($name->value, '_')) {
+            yield new Violation(
+                message: 'Reserved name "' . $name->value . '"',
+                offset: $name->offset,
+                length: strlen($name->value),
+            );
+        }
+    }
+}
+
+$rules = Validator::getDefaultRules([new NoLeadingUnderscore()]);
+$parser = new Parser(validatorRules: $rules);
+
+try {
+    $parser->parse("int _a(void);\nint ok(void);");
+} catch (ValidationException $e) {
+    echo $e->getMessage() . "\n";
+}
+
+// Reserved name "_a"
+```
+
+`validatorRules: []` turns the validation off. `Transformer` and `Validator`
+also work without the parser: `new Validator($rules)->validate($declarations)`
+returns the list of violations.
