@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "check:links": "node bin/check-links.mjs",
+    "check:code": "node bin/check-code-width.mjs",
+    "check": "astro build && node bin/check-links.mjs && node bin/check-code-width.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.43.1",
