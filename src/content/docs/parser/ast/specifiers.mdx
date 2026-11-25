@@ -1,0 +1,121 @@
+---
+title: "Specifiers and attributes"
+description: "Storage-class, function and alignment specifiers, and the four kinds of attributes: where they are in the tree and how to read them."
+sidebar:
+  label: Specifiers and attributes
+  order: 3
+---
+
+## Specifiers
+
+Specifiers are the keywords of a declaration that are not part of the type. They live in
+`FFI\Parser\Node\Specifier` and implement `SpecifierInterface`.
+
+| Group | Classes |
+|---|---|
+| Storage class (`StorageClassSpecifier`) | `AutoSpecifier`, `ConstExprSpecifier`, `ExternSpecifier`, `RegisterSpecifier`, `StaticSpecifier`, `ThreadLocalSpecifier`, `TypeDefSpecifier` |
+| Function (`FunctionSpecifier`) | `InlineSpecifier`, `NoReturnSpecifier`, `ForceInlineSpecifier` (`__forceinline`, MSVC) |
+| Alignment (`AlignmentSpecifier`) | `AlignAsSpecifier` with an expression `operand`, `AlignAsTypeSpecifier` with a `type` |
+
+The keyword is the class of the node, none of them has properties besides `offset`, except the
+alignment ones. The specifiers of a declaration are in the `specifiers` property, a
+`SpecifierList`, in the order written and with the repeats. The list is `null` when nothing is
+written, and the type specifiers (`int`, `unsigned`, `const`) are not in it, they form the
+[type](../types/).
+
+```php
+use FFI\Parser\Parser;
+
+$declaration = new Parser()->parse('static inline _Noreturn void stop(void);')[0];
+
+foreach ($declaration->specifiers as $specifier) {
+    echo new ReflectionClass($specifier)->getShortName() . "\n";
+}
+
+// StaticSpecifier
+// InlineSpecifier
+// NoReturnSpecifier
+```
+
+The same list is on `Parameter` and `MemberDeclaration`. A `SpecifierList` may also hold
+attributes that are written among the specifiers, see below.
+
+## Attributes
+
+An attribute is a node that implements `AttributeInterface` and has two properties:
+
+| Property | Meaning |
+|---|---|
+| `name` | The name as written, an `Identifier`. A keyword is a name too: `const` in `[[gnu::const]]`. |
+| `arguments` | An `ArgumentList`, `null` if there are no parentheses, empty for `()`. |
+
+The syntax is the class of the node:
+
+| Class | Syntax |
+|---|---|
+| `StandardAttribute` | `[[deprecated("use g")]]`, `[[gnu::packed]]`. The `prefix` before `::` is an `Identifier` or `null`. |
+| `GnuAttribute` | `__attribute__((aligned(8)))`, also `__attribute`. |
+| `DeclSpecAttribute` | `__declspec(dllimport)`, MSVC. |
+| `KeywordAttribute` | A keyword that is the name of the attribute: `__cdecl`, `__ptr32`, `__based(p)`, `_Nonnull`, `__ptrauth(1, 0, 42)`. |
+
+The GNU, MSVC and Clang syntaxes need a [feature of the preset](../../presets/) that is on.
+
+An attribute specifier `[[a, b]]` gives a node for each attribute inside, and `[[]]` gives none.
+Nothing is checked: the parser keeps the attribute where it is written.
+
+The arguments are split at the commas outside nested brackets. An argument is an expression, or,
+if it is not a constant expression, a `BalancedTokenSequence` that keeps the tokens in `raw`:
+
+```php
+use FFI\Parser\Parser;
+
+$function = new Parser()->parse('void f(void) __attribute__((noreturn, format(printf, 1, 2)));')[0];
+
+foreach ($function->attributes as $attribute) {
+    echo $attribute::class . ' ' . $attribute->name->value . ' (' . count($attribute->arguments ?? []) . ")\n";
+}
+
+// FFI\Parser\Node\Attribute\GnuAttribute noreturn (0)
+// FFI\Parser\Node\Attribute\GnuAttribute format (3)
+```
+
+```php
+use FFI\Parser\Parser;
+
+$function = new Parser()->parse('[[deprecated("use g")]] void f(void);')[0];
+
+$attribute = $function->specifiers[0];
+
+echo $attribute->name->value . ': ' . $attribute->arguments[0]->value . "\n";
+
+// deprecated: use g
+```
+
+### Where attributes are
+
+An attribute goes to the place of the tree that matches its place in the source:
+
+| In the source | In the tree |
+|---|---|
+| Before the type, `[[a]] int x;` | `specifiers` of the declaration, among the specifiers |
+| After the declared name, and the GNU ones around the declarator | `attributes` of the declaration |
+| After `struct`, `union` or `enum` | `attributes` of the `RecordType` or the `EnumType` |
+| After `*`, such as `int * _Nonnull p` | `attributes` of the `PointerType` |
+| In the brackets of an array | `attributes` of the `ArrayType` |
+| At the start of a parenthesized declarator, `int (__attribute__((x)) f)(void)` | `attributes` of the type that the declarator makes (`FunctionType`, `PointerType`...). A type without `attributes` of its own gets an `AttributedType` around it. |
+| On an enumerator or a parameter | `attributes` of the `Enumerator` or the `Parameter` |
+| A lone `[[...]];` | An `AttributeDeclaration` |
+
+The `attributes` property is an `AttributeList`, or `null`.
+
+```php
+use FFI\Parser\Parser;
+
+[$pointer] = new Parser()->parse('int * _Nonnull p;');
+
+echo $pointer->type::class . "\n";
+echo $pointer->type->attributes->first()::class . "\n";
+
+// FFI\Parser\Node\Type\PointerType
+// FFI\Parser\Node\Attribute\KeywordAttribute
+```

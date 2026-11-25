@@ -1,0 +1,147 @@
+---
+title: "Usage"
+description: "The Parser class: sources it reads, the result of parse(), validate() and the constructor options."
+sidebar:
+  label: Usage
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`FFI\Parser\Parser` is the only entry point. It is `final`, takes all its options in the
+constructor and holds no state between calls, so one instance can parse any number of headers.
+
+## Parsing
+
+`Parser::parse()` returns `list<RootDeclarationInterface>`: the declarations written at the
+root of the file, in the order they are written. A declaration with several declarators gives
+one node for each of them, and empty declarations (a lone `;`) are not listed.
+
+```php
+use FFI\Parser\Parser;
+
+$declarations = new Parser()->parse('int a, *b, c[2]; ;');
+
+foreach ($declarations as $declaration) {
+    echo $declaration->name->value . ': ' . $declaration->type::class . "\n";
+}
+
+// a: FFI\Parser\Node\Type\BuiltinType\IntType
+// b: FFI\Parser\Node\Type\PointerType
+// c: FFI\Parser\Node\Type\ArrayType\SizedArrayType
+```
+
+What the nodes are and how to read them is described in [Syntax tree](../ast/).
+
+### Sources
+
+The argument of `parse()` and `validate()` is one of:
+
+| Value | Meaning |
+|---|---|
+| `string` | The code of the header. |
+| `SplFileInfo` | A file. |
+| `resource` | A stream. |
+| `Phplrt\Contracts\Source\ReadableInterface` | Any [phplrt](https://phplrt.org/) source object. |
+
+A string is always code, never a path: to read a file, wrap it into `SplFileInfo`.
+
+```php
+use FFI\Parser\Parser;
+
+$declarations = new Parser()->parse(new SplFileInfo('header.h'));
+```
+
+If the source cannot be read, the parser throws `InternalException`, see [errors](../errors/).
+
+Comments are skipped, and so are the lines that start with `#` (line markers and `#pragma`
+among them): the parser does not interpret directives.
+
+### Preprocessed source
+
+The parser works with **preprocessed** source. Macros are not expanded and `#include` is not
+followed, so a header that relies on them has to go through
+[the preprocessor](/preprocessor/) first.
+
+`Preprocessor::process()` returns a `Result` object, and the parser does not accept it as a
+source directly: cast it to a string.
+
+```php
+use FFI\Parser\Parser;
+use FFI\Preprocessor\Preprocessor;
+
+$result = new Preprocessor()->process(<<<'C'
+    #define SIZE 4
+    int buffer[SIZE];
+    C);
+
+$declarations = new Parser()->parse((string) $result);
+
+echo $declarations[0]->type->size->raw . "\n";
+
+// 4
+```
+
+## Checking the syntax
+
+`Parser::validate()` answers whether the header is syntactically valid. It returns a `bool`
+and neither builds the tree nor runs the [transformers](../transformers/) and the
+[validators](../validators/), so it is faster than `parse()`.
+
+```php
+use FFI\Parser\Parser;
+
+$parser = new Parser();
+
+var_dump($parser->validate('int x;'));
+var_dump($parser->validate('int x'));
+
+// bool(true)
+// bool(false)
+```
+
+`validate()` does not know the [preset](../presets/): it accepts every extension the grammar
+knows, also those that `parse()` rejects with the given preset. It returns `false` for an
+invalid header and throws `InternalException` only when the source cannot be read.
+
+## Constructor options
+
+All arguments are optional and are best passed by name.
+
+```php
+use FFI\Parser\Parser;
+use FFI\Parser\Preset;
+
+$parser = new Parser(
+    preset: Preset::gcc(),
+    // validatorRules: [...],
+    // transformerRules: [...],
+    // sources: ...,
+);
+```
+
+| Argument | Type | Default |
+|---|---|---|
+| `preset` | `?Preset` | `Preset::default()`: every extension and the typedef names of every compiler. See [Presets](../presets/). |
+| `validatorRules` | `?iterable` of `ValidatorRuleInterface` | `Validator::getDefaultRules()` without the rules that the features of the preset remove. See [Validators](../validators/). |
+| `transformerRules` | `?iterable` of `TransformerRuleInterface` | `Transformer::getDefaultRules()`. See [Transformers](../transformers/). |
+| `sources` | `?SourceFactoryInterface` | The default phplrt factory: strings, files and streams. |
+
+<Aside type="caution">
+The `validatorRules` you pass are still filtered by the preset: a rule that a feature of the
+preset removes is dropped from your list as well.
+</Aside>
+
+## Pipeline
+
+`parse()` runs three stages in a row:
+
+1. The generated parser builds the tree. A syntax error, or an extension that the preset does
+   not accept, stops here with `SyntaxErrorException`.
+2. The transformers rewrite the tree. They resolve what the grammar cannot tell without the
+   names of the types, such as `(x)-y`: a cast or a subtraction.
+3. The validators check the C23 constraints that the grammar lets through. All violations are
+   collected, and `ValidationException` is thrown once, with the first of them as the message.
+
+The result is the tree after the second stage. The traverser runs inside stages two and three;
+`Parser` does not take visitors, to walk the result use [`Traverser`](../traverser/) on your own.

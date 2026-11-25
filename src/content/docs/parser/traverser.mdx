@@ -1,0 +1,182 @@
+---
+title: "Traverser"
+description: "Walking the syntax tree with visitors: reading, replacing and removing nodes."
+sidebar:
+  label: Traverser
+  order: 3
+---
+
+`FFI\Parser\Traverser` walks the tree with visitors. It is the engine under the
+[transformers](../transformers/) and the [validators](../validators/), and it is public: use it to
+read the tree, collect data from it or rewrite it. `Parser` itself does not take visitors, run the
+traverser over the result of `parse()`.
+
+## Visitors
+
+A visitor implements `FFI\Parser\Traverser\VisitorInterface`, or extends the empty base class
+`FFI\Parser\Traverser\Visitor` and overrides what it needs:
+
+```php
+// ...
+public function enter(NodeInterface $node, Context $context): NodeInterface|Action|null;
+public function leave(NodeInterface $node, Context $context): NodeInterface|Action|null;
+```
+
+`enter()` is called before the children of the node are walked, `leave()` after. Both return:
+
+| Result | Effect |
+|---|---|
+| `null` | The node stays as it is. |
+| A node | It replaces the given one. |
+| `Action::Remove` | The node is removed from the list that holds it, or from the result for a root declaration. |
+| `Action::SkipChildren` | The children are not walked. Only `enter()` may return it. |
+
+```php
+use FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration\FunctionDeclaration;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Traverser;
+use FFI\Parser\Traverser\Action;
+use FFI\Parser\Traverser\Context;
+use FFI\Parser\Traverser\Visitor;
+
+$collector = new class extends Visitor {
+    /** @var list<string> */
+    public array $functions = [];
+
+    public function enter(NodeInterface $node, Context $context): NodeInterface|Action|null
+    {
+        if ($node instanceof FunctionDeclaration) {
+            $this->functions[] = $node->name->value . '/' . count($node->type->parameters);
+        }
+
+        return null;
+    }
+};
+
+$declarations = new Parser()->parse('typedef int id_t; int open(const char *path); void close(id_t id);');
+
+Traverser::execute($declarations, [$collector]);
+
+echo implode(', ', $collector->functions) . "\n";
+
+// open/1, close/1
+```
+
+`Traverser::execute($declarations, $visitors)` is a shortcut for `new Traverser($visitors)->traverse($declarations)`.
+Both take and return a `list<RootDeclarationInterface>`.
+
+## Changing the tree
+
+The traversal changes the nodes in place and returns the list of the root declarations with the
+replaced ones in their places and without the removed ones. If a root declaration is replaced or
+removed, the list you passed in is not the result: use the returned one.
+
+Remove all typedefs:
+
+```php
+use FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration\TypeDefDeclaration;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Traverser;
+use FFI\Parser\Traverser\Action;
+use FFI\Parser\Traverser\Context;
+use FFI\Parser\Traverser\Visitor;
+
+$dropTypedefs = new class extends Visitor {
+    public function enter(NodeInterface $node, Context $context): NodeInterface|Action|null
+    {
+        return $node instanceof TypeDefDeclaration ? Action::Remove : null;
+    }
+};
+
+$declarations = new Parser()->parse('typedef int id_t; int open(void); void close(int fd);');
+$result = new Traverser([$dropTypedefs])->traverse($declarations);
+
+echo count($declarations) . ' -> ' . count($result) . "\n";
+
+// 3 -> 2
+```
+
+Replace a literal with another one when the visitor leaves it:
+
+```php
+use FFI\Parser\Node\Literal\IntLiteral\DecIntLiteral;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Traverser;
+use FFI\Parser\Traverser\Action;
+use FFI\Parser\Traverser\Context;
+use FFI\Parser\Traverser\Visitor;
+
+$double = new class extends Visitor {
+    public function leave(NodeInterface $node, Context $context): NodeInterface|Action|null
+    {
+        if ($node instanceof DecIntLiteral) {
+            return new DecIntLiteral(value: $node->value * 2, offset: $node->offset);
+        }
+
+        return null;
+    }
+};
+
+$declarations = new Parser()->parse('int x = 10;');
+
+Traverser::execute($declarations, [$double]);
+
+echo $declarations[0]->initializer->raw . "\n";
+
+// 20
+```
+
+A replacement must fit the place of the old node. A root declaration is replaced with a root
+declaration, `Identifier $name` takes an `Identifier`. A node cannot be removed from a place that
+is not a list: `Action::Remove` for the name of a declaration fails. The traverser throws a
+`TraverserException` then, see [Errors](../errors/#traverser-exceptions).
+
+## Order of the walk
+
+- With several visitors every node is given to the visitors in the order they are listed, and each
+  one gets the node the previous one returned. For a node that `enter()` replaced, the children of
+  the replacement are walked, and for a node that `leave()` replaced they are not.
+- A node that several parents hold is visited once, and the result takes its place in every
+  parent. The declarators of `struct S {} a, b;` share the `StructType`.
+- The children are walked in the order of the public properties of the node, those of the parent
+  class first. A list is walked item by item.
+
+## Context
+
+The second argument of `enter()` and `leave()` is a `Context` with two read-only properties:
+
+| Property | Meaning |
+|---|---|
+| `parents` | The nodes that hold the given one, from a root declaration to the direct parent. Empty for a root declaration. A shared node has the parents of its first occurrence. |
+| `declarations` | All root declarations. |
+
+```php
+use FFI\Parser\Node\Identifier;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Traverser;
+use FFI\Parser\Traverser\Action;
+use FFI\Parser\Traverser\Context;
+use FFI\Parser\Traverser\Visitor;
+
+$printer = new class extends Visitor {
+    public function enter(NodeInterface $node, Context $context): NodeInterface|Action|null
+    {
+        if ($node instanceof Identifier) {
+            $path = array_map(fn(NodeInterface $parent) => new ReflectionClass($parent)->getShortName(), $context->parents);
+
+            echo $node->value . ': ' . implode(' > ', $path) . "\n";
+        }
+
+        return null;
+    }
+};
+
+Traverser::execute(new Parser()->parse('int add(int a);'), [$printer]);
+
+// add: FunctionDeclaration
+// a: FunctionDeclaration > FunctionType > ParameterList > Parameter
+```

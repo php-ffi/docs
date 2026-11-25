@@ -1,0 +1,43 @@
+---
+title: "Limitations"
+description: "What the preprocessor does not support yet: #line, #embed parameters, __has_embed, _Pragma, __VA_OPT__ and __COUNTER__."
+sidebar:
+  label: Limitations
+  order: 11
+---
+
+The list below is what is missing compared to C23, each point is checked against the code.
+It may get shorter in the future.
+
+## Directives
+
+- `#line` is not supported. The handler is not registered, so `#line 5` throws
+  `UnknownDirectiveException` like any other unknown directive. `__FILE__` and `__LINE__`
+  always tell the real file and line. If you must accept sources with `#line`, register
+  a handler of your own that leaves nothing in the output, see
+  [custom directives](../custom-directives/).
+- `#embed` takes only a resource name. The parameters `limit`, `prefix`, `suffix` and
+  `if_empty` are ignored with a warning, and `__has_embed` is not supported (it is a syntax
+  error in a condition).
+- `#pragma once` recognizes a file by its pathname. The same file included under different
+  virtual names is not detected. Real files are compared by their real path, so
+  `a/../b.h` and `b.h` are the same file.
+
+## Other features
+
+- The `_Pragma` operator is not supported, it stays in the output as it is.
+- `__VA_OPT__` is not supported, it stays in the output as it is. `__VA_ARGS__` works.
+- `__COUNTER__` is not defined, it is an identifier like any other.
+- `__DATE__` and `__TIME__` are taken from the clock at each replacement, not once per run,
+  so two of them in one source can differ.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+echo new Preprocessor()->process(<<<'C'
+    #define F(x, ...) a __VA_OPT__(b) x
+    __COUNTER__ _Pragma("once") F(1)
+    C);
+
+// __COUNTER__ _Pragma("once") a __VA_OPT__(b) 1
+```

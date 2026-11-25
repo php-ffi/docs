@@ -1,0 +1,215 @@
+---
+title: "Exports"
+description: "Symbols a library offers to other binaries: names, addresses, forwarders, binding and calling convention."
+sidebar:
+  label: Exports
+  order: 2
+---
+
+Exported symbols are the functions and variables a library offers from outside. They are
+the names an `FFI::cdef()` declaration may mention.
+
+`getSymbols()` returns a list of `ReflectionExportSymbol` objects, and `getSymbol()`,
+`findSymbol()` and `hasSymbol()` look one up by name:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('kernel32.dll');
+
+$symbol = $library->getSymbol('CreateFileW');
+
+echo $symbol->getName() . "\n";
+echo $symbol->getOrdinal() . "\n";
+echo '0x' . dechex($symbol->getAddress()) . "\n";
+
+var_dump($library->hasSymbol('CreateFileW'));
+var_dump($library->findSymbol('DoesNotExist'));
+
+// CreateFileW
+// 236
+// 0x572c0
+// bool(true)
+// NULL
+```
+
+| Method | Returns |
+|---|---|
+| `getSymbols()` | `list<ReflectionExportSymbol>`, in the order of the image. |
+| `getSymbol($name)` | The symbol, or throws `SymbolNotFoundException`. |
+| `findSymbol($name)` | The symbol, or `null`. |
+| `hasSymbol($name)` | `bool`. |
+
+The lookup is case sensitive and goes through the [public name](#names) of a symbol.
+If several symbols have the same name, the first one wins. Addresses and ordinals depend
+on the build of the library, so do not rely on the numbers above.
+
+## Names
+
+Every symbol (imported ones too) has two names:
+
+- `getNativeName()` is the name exactly as the file stores it, decorations included. It is
+  what a disassembler shows. It is `null` when the file records no name at all.
+- `getName()` is the name you put into `FFI::cdef()`. It is `null` when there is no such
+  name: the file records none, or the recorded one is not a valid C identifier.
+
+`isAnonymous()` is `true` when there is no native name, and `isResolvable()` is `true` when
+`getName()` is not `null`. A symbol without `getName()` cannot be found by `getSymbol()`;
+iterate over `getSymbols()` to reach it.
+
+The static `ReflectionSymbol::isResolvableName()` checks a string against the same rule
+(`/^[A-Za-z_][A-Za-z0-9_]*$/`).
+
+Mach-O prefixes every C symbol with an underscore. The package keeps it in the native name
+and drops it from the public one:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('libsqlitejdbc.dylib');
+
+$symbol = $library->getSymbol('JNI_OnLoad');
+
+echo $symbol->getNativeName() . "\n";
+echo $symbol->getName() . "\n";
+
+// _JNI_OnLoad
+// JNI_OnLoad
+```
+
+A 32-bit PE image can carry the calling convention in the name, like `_IsProcessHooked@0`.
+Such a name is not a C identifier, so the symbol has a native name but no public one:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('C:/Windows/SysWOW64/AppVEntSubsystems32.dll');
+
+foreach ($library->getSymbols() as $symbol) {
+    if ($symbol->getAbi()->name === 'StdCall') {
+        var_dump($symbol->getNativeName(), $symbol->getName(), $symbol->isResolvable());
+        break;
+    }
+}
+
+// string(18) "_IsProcessHooked@0"
+// NULL
+// bool(false)
+```
+
+A PE export can also have no name at all and be reachable by its ordinal only. Its string
+form is `#` and the ordinal:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('C:/Windows/System32/APMon.dll');
+
+foreach ($library->getSymbols() as $symbol) {
+    if ($symbol->isAnonymous()) {
+        echo $symbol . ' ' . $symbol->getOrdinal() . "\n";
+        break;
+    }
+}
+
+// #342 342
+```
+
+## Address and forwarder
+
+`getAddress()` returns the address of the symbol relative to the base of the library, as an
+`int`, or `null` (a PE forwarder has no address). To get a real address add the base the
+library is loaded at.
+
+`getForwarder()` is not `null` for a symbol that has no code of its own and passes every call to
+another library, in the form `Library.Symbol`. `isForwarded()` is the same as a check for
+`null`. This is common in PE (`kernel32.dll` forwards many functions to `NTDLL`) and rare in
+Mach-O (a re-export).
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('kernel32.dll');
+
+foreach ($library->getSymbols() as $symbol) {
+    if ($symbol->isForwarded()) {
+        echo $symbol->getName() . ' => ' . $symbol->getForwarder() . "\n";
+        break;
+    }
+}
+
+// AcquireSRWLockExclusive => NTDLL.RtlAcquireSRWLockExclusive
+```
+
+## Binding, visibility and calling convention
+
+| Method | Returns |
+|---|---|
+| `getBinding()` | `?ReflectionSymbolResolution`: what happens when several libraries define the same name. |
+| `isWeak()` | `true` for `ReflectionSymbolResolution::Weak`. |
+| `getVisibility()` | `ReflectionSymbolVisibility`. |
+| `getAbi()` | `ReflectionSymbolAbi`: the calling convention. |
+
+`ReflectionSymbolResolution` has the cases `Global`, `Weak` (another definition may
+override this one) and `Unique` (a GNU extension of ELF). `getBinding()` is `null` for an ELF
+binding the package does not know.
+
+`ReflectionSymbolVisibility` has the cases `Public`, `Protected`, `Private` and `Internal`,
+and the method `isExported()`, which is `true` for `Public` and `Protected`. The readers
+return exported symbols only, so in practice you see `Public` and, in ELF, `Protected`.
+
+`ReflectionSymbolAbi` has the cases `Default`, `CDecl`, `FastCall`, `ThisCall`, `StdCall`,
+`Pascal`, `Register`, `MS`, `SysV` and `VectorCall`. Only PE sets something other than
+`Default`, and only for 32-bit images, where the convention is recovered from the decoration
+of the name:
+
+| Native name | `getAbi()` |
+|---|---|
+| `name@@24` | `VectorCall` |
+| `@name@8` | `FastCall` |
+| `_name@8` | `StdCall` |
+| any other name | `CDecl` |
+
+ELF and Mach-O have a single calling convention per platform and always report `Default`;
+so do 64-bit PE images, which do not decorate names.
+
+For example, the first export of the 32-bit build of `sqlitejdbc.dll`:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('sqlitejdbc.dll');
+
+foreach ($library->getSymbols() as $symbol) {
+    echo $symbol->getNativeName() . ' ' . $symbol->getAbi()->name . "\n";
+    break;
+}
+
+// JNI_OnLoad CDecl
+```
+
+The `ReflectionSymbolAbi`, `ReflectionSymbolResolution` and `ReflectionSymbolVisibility`
+enums live in the `FFI\Reflection\ReflectionLibrary` namespace.
+
+## Working with the list
+
+`getSymbols()` returns a plain array, so the usual array functions and the pipe operator
+fit:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+use FFI\Reflection\ReflectionLibrary\ReflectionExportSymbol;
+
+$library = new ReflectionLibrary('sqlitejdbc.dll');
+
+$names = $library->getSymbols()
+    |> array_map(fn(ReflectionExportSymbol $symbol): ?string => $symbol->getName(), ?)
+    |> array_filter(?, fn(?string $name): bool => str_starts_with($name, 'JNI_'));
+
+echo implode(', ', $names) . "\n";
+
+// JNI_OnLoad, JNI_OnUnload
+```
+
+Format-specific data of an export, like the ELF symbol type or the PE ordinal, is described
+on the [format pages](../formats/).

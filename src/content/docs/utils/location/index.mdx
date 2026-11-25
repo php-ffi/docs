@@ -1,0 +1,115 @@
+---
+title: "Location"
+description: "Finds the physical path of a shared library the way the operating system loader does."
+sidebar:
+  label: Overview
+  order: 0
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`ffi/location` finds the physical path of a shared library (`.dll`, `.so`, `.dylib`)
+by its name. It looks in the same places and in the same order as the loader that
+`FFI::cdef()` relies on, so the path it returns is the file the loader would pick.
+
+## Installation
+
+```bash
+composer require ffi/location
+```
+
+Requires PHP 7.4 or later. The package does not need `ext-ffi`: it only looks for
+files, loading them is up to you.
+
+<Aside type="note">
+The package supports PHP 7.4, the examples on this page use the syntax of the
+current PHP version.
+</Aside>
+
+## Public API
+
+The whole public API is the static methods of `FFI\Location\Locator`. Everything under
+`FFI\Location\Resolver` is internal and may change without notice.
+
+| Method | Returns | Meaning |
+|---|---|---|
+| `Locator::exists(string $name)` | `bool` | Whether the library is found. |
+| `Locator::pathname(string $name)` | `?string` | The real path of the library, or `null`. |
+| `Locator::resolve(string ...$libraries)` | `?string` | The path of the first library that is found, or `null`. |
+
+## Checking existence
+
+```php
+use FFI\Location\Locator;
+
+var_dump(Locator::exists('kernel32'));
+var_dump(Locator::exists('no-such-library'));
+
+// bool(true)
+// bool(false)
+```
+
+## Getting the path
+
+`pathname()` returns an absolute path with symbolic links resolved
+([`realpath()`](https://www.php.net/manual/en/function.realpath.php)), or `null`
+when the library is not found. On Linux a name like `libGL.so` usually is a link, so
+the result is the real file, for example `/usr/lib/x86_64-linux-gnu/libGL.so.1.7.0`.
+
+```php
+use FFI\Location\Locator;
+
+echo Locator::pathname('kernel32') . "\n";
+
+// C:\Windows\System32\kernel32.dll
+```
+
+An empty name and a name with a null byte give `null`.
+
+The name is searched in the directories of the platform, see
+[the search order](../search-order/). Two kinds of names are handled differently:
+
+- A name with a directory separator is a path. It is not searched in the
+  directories: the file is checked as is, a relative path is relative to the working
+  directory. On Windows a colon counts as a separator too, so `C:name.dll` is a path.
+- On Windows `.dll` is appended to a name without an extension. A trailing dot turns
+  it off and is dropped: `kernel32.` looks for a file named `kernel32` and does not
+  find `kernel32.dll`. On Linux and macOS the name is used exactly as given, the
+  package does not add `lib` or the suffix.
+
+```php
+use FFI\Location\Locator;
+
+var_dump(Locator::pathname('C:/Windows/System32/user32.dll'));
+var_dump(Locator::pathname('user32.dll'));
+var_dump(Locator::pathname('user32.'));
+
+// string(30) "C:\Windows\System32\user32.dll"
+// string(30) "C:\Windows\System32\user32.dll"
+// NULL
+```
+
+## Choosing from several names
+
+The same library is named differently on each system. `resolve()` takes the names in
+the order of preference and returns the path of the first one that exists, or `null`
+if none does. Use it together with `FFI::cdef()`:
+
+```php
+use FFI\Location\Locator;
+
+$pathname = Locator::resolve('libc.so.6', 'libc.dylib', 'msvcrt')
+    ?? throw new RuntimeException('C library not found');
+
+$ffi = FFI::cdef('int abs(int value);', $pathname);
+
+echo $ffi->abs(-42) . "\n";
+
+// 42
+```
+
+Because the names are checked one after another, the result depends on the order of
+the arguments, not on the order of the directories.
+
+`Locator` is stateless and does not cache results: every call looks at the file
+system again.

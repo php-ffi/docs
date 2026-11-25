@@ -1,0 +1,87 @@
+---
+title: "ELF"
+description: "Reading Linux, BSD and Android shared objects: symbol types, versions and how imports are attributed."
+sidebar:
+  label: ELF
+  order: 1
+---
+
+ELF is the format of `*.so` files on Linux, the BSDs and Android. The driver reads the
+section headers and uses the dynamic symbol table (`.dynsym`) for both exports and imports.
+
+An ELF file without a section header table (some stripped or hand-made files) or without
+a dynamic symbol table cannot be asked about symbols and throws
+`SymbolTableNotFoundException`.
+
+## Exports
+
+The driver returns the defined symbols of `.dynsym` that are not local and are visible
+outside of the library, as `ElfReflectionExportSymbol` objects. Besides the
+[common methods](../../exports/) they have:
+
+| Method | Returns |
+|---|---|
+| `getType()` | `?SymbolType`, what the symbol denotes. `null` for an OS- or processor-specific value. |
+| `getSize()` | `int`, the size of the object in bytes, `0` when unknown. |
+| `getIndex()` | `int`, the row of the symbol in the dynamic symbol table. |
+
+`FFI\Reflection\ReflectionLibrary\Reader\ELF\SymbolType` has the cases `NoType`, `Object`,
+`Func`, `Section`, `File`, `Common`, `Tls` and `GnuIFunc` (the `STT_*` constants of the
+specification).
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+use FFI\Reflection\ReflectionLibrary\Reader\ELF\ElfReflectionExportSymbol;
+use FFI\Reflection\ReflectionLibrary\Reader\ELF\SymbolType;
+
+$library = new ReflectionLibrary('libsqlitejdbc.so');
+
+foreach ($library->getSymbols() as $symbol) {
+    if ($symbol instanceof ElfReflectionExportSymbol && $symbol->getType() === SymbolType::NoType) {
+        echo $symbol->getName() . ' ' . $symbol->getType()->name . "\n";
+    }
+}
+
+// _edata NoType
+// _end NoType
+// __bss_start NoType
+```
+
+The binding is `Global`, `Weak` or `Unique`, the visibility is `Public` or `Protected`, the
+calling convention is always `Default`, and there are no forwarders.
+
+## Imports
+
+An import is a library listed as needed in the dynamic section (`DT_NEEDED`), in the order
+of the file, and it is an `ElfReflectionImport`. It is never optional.
+
+ELF resolves symbols in a flat namespace: the file says which libraries it needs and which
+symbols are undefined, but not which library provides which symbol. The exception is a
+symbol with a version requirement (`.gnu.version_r`), which names the library it comes
+from. That is why the `getSymbols()` of an ELF import contains only versioned symbols, and
+an import of a library without versioned symbols has an empty list.
+
+`getVersions()` of the import returns the versions of the library the file requires.
+Symbols are `ElfReflectionImportSymbol` objects: `getVersion()` is the version of
+the symbol, `isOptional()` is `true` for a weak undefined symbol, and `getIndex()` returns
+the row in the dynamic symbol table.
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+use FFI\Reflection\ReflectionLibrary\Reader\ELF\ElfReflectionImport;
+
+$library = new ReflectionLibrary('libsqlitejdbc.so');
+
+foreach ($library->getImports() as $import) {
+    if ($import instanceof ElfReflectionImport) {
+        echo $import->getName() . ' ' . implode(', ', $import->getVersions()) . "\n";
+    }
+}
+
+echo $library->getImport('libc.so.6')->getSymbol('printf')->getVersion() . "\n";
+
+// libm.so.6 GLIBC_2.2.5
+// libpthread.so.0 GLIBC_2.2.5
+// libc.so.6 GLIBC_2.3, GLIBC_2.2.5
+// GLIBC_2.2.5
+```

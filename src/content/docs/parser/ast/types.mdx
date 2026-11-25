@@ -1,0 +1,192 @@
+---
+title: "Types"
+description: "How a declarator becomes a chain of type nodes: pointers, arrays, functions, qualifiers, modifiers, structures and enumerations."
+sidebar:
+  label: Types
+  order: 2
+---
+
+The type of a declaration is a chain of nodes from `FFI\Parser\Node\Type`, each of them
+implements `TypeInterface`. The chain follows the declarator, and the node at the end is the
+base type. `int *names[16]` is an array of 16 pointers to `int`:
+
+```text
+SizedArrayType (size 16)
+  PointerType
+    IntType
+```
+
+A `type` property of a wrapper node (`PointerType`, an array, `QualifiedType`...) is the
+type it wraps. It is `null` only when the specifiers give no type, see
+[Optional parts](../#optional-parts-and-the-type).
+
+## Base types
+
+| Class | Source |
+|---|---|
+| `VoidType`, `BoolType`, `CharType`, `IntType`, `FloatType`, `DoubleType` | `void`, `bool` (or `_Bool`), `char`, `int`, `float`, `double` |
+| `BitIntType` | `_BitInt(8)`, the bit width is the expression `width` |
+| `FloatNType`, `FloatNxType` | `_Float32`, `_Float64x`, the width in bits is `width` |
+| `DecimalNType`, `DecimalNxType` | `_Decimal32`, `_Decimal64x`, the width in bits is `width` |
+| `NamedType` | A name declared elsewhere, such as a typedef name: `size_t`. The name is `name`, an `Identifier`. |
+
+All of them except `NamedType` extend `BuiltinType`.
+
+## Modifiers and qualifiers
+
+Keywords that change a base type are not folded into it. `unsigned long long x;` is a
+`ModifiedType` that lists the modifiers in the order written, repeats included, and holds the
+base type, or `null` if only modifiers are written:
+
+```php
+use FFI\Parser\Parser;
+
+$type = new Parser()->parse('unsigned long long x;')[0]->type;
+
+echo $type::class . "\n";
+echo implode(' ', array_map(fn($modifier) => $modifier->value, $type->modifiers)) . "\n";
+var_dump($type->type);
+
+// FFI\Parser\Node\Type\ModifiedType
+// unsigned long long
+// NULL
+```
+
+`TypeModifier` is a string-backed enum with the cases `Signed`, `Unsigned`, `Short`, `Long`,
+`Complex` and `Imaginary`. The combination is checked by the
+[validators](../../validators/), not by the type node: `long float` parses into a
+`ModifiedType` and is rejected afterwards.
+
+Qualifiers are a `QualifiedType` with the list `qualifiers` of `TypeQualifier` cases (`Const`,
+`Volatile`, `Restrict`, `Atomic`). A qualifier applies to what it is written next to, so
+`const char *p` is a pointer to a qualified `char`, and `char *const q` is a qualified pointer:
+
+```php
+use FFI\Parser\Parser;
+
+[$p, $q] = new Parser()->parse('const char *p; char *const q;');
+
+echo new ReflectionClass($p->type)->getShortName() . ' of ' . new ReflectionClass($p->type->type)->getShortName() . "\n";
+echo new ReflectionClass($q->type)->getShortName() . ' of ' . new ReflectionClass($q->type->type)->getShortName() . "\n";
+
+// PointerType of QualifiedType
+// QualifiedType of PointerType
+```
+
+`_Atomic(T)` with parentheses is an `AtomicType` with the `type`, `_Atomic` alone is a qualifier.
+`typeof(x)` is a `TypeOfType` with an expression `operand`, `typeof(int)` is a
+`TypeOfTypeType` with a `type`, and `typeof_unqual` gives `TypeOfUnqualType` and
+`TypeOfUnqualTypeType` in the same way.
+
+## Pointers
+
+`PointerType` is the `*` of a declarator, and `$type` is the type it points to. The qualifiers
+of the pointer itself are in a `QualifiedType` around the node. The `^` of a Clang block
+pointer is a `BlockPointerType`.
+
+## Arrays
+
+An array is a node of the abstract `ArrayType`, with the element `type`:
+
+| Class | Source | Extra properties |
+|---|---|---|
+| `SizedArrayType` | `int a[3]`, `int a[static 3]` | `size` (an expression), `isStatic` |
+| `IncompleteArrayType` | `int a[]` | |
+| `UnspecifiedSizeArrayType` | `int a[*]` | |
+
+All of them have `qualifiers`, a `list` of the qualifiers written in the brackets (`int a[const 3]`),
+and `attributes`. The arrays of parameters are kept as written, without the adjustment to a pointer.
+
+## Functions
+
+`FunctionType` is written by the parameter list of a declarator.
+
+| Property | Meaning |
+|---|---|
+| `returnType` | The return type. |
+| `parameters` | A `ParameterList` of `Parameter` nodes. |
+| `isVariadic` | Whether the parameters end with `...`. |
+| `attributes` | Attributes of the function type. |
+
+`f()` and `f(void)` are kept apart: the first has an empty list, the second a list with one
+`Parameter` of the type `VoidType` and without a name.
+
+A `Parameter` has the `type`, the `name` (`null` for an abstract declarator), the `attributes`
+and the `specifiers`. A pointer to a function is a `PointerType` that holds a `FunctionType`:
+
+```php
+use FFI\Parser\Parser;
+
+$callback = new Parser()->parse('int (*cb)(void *, ...);')[0];
+
+echo $callback->type::class . "\n";
+echo $callback->type->type::class . "\n";
+var_dump($callback->type->type->isVariadic);
+
+// FFI\Parser\Node\Type\PointerType
+// FFI\Parser\Node\Type\FunctionType
+// bool(true)
+```
+
+## Structures and unions
+
+`StructType` and `UnionType` extend `RecordType`. A `RecordType` is a declaration as well as
+a type.
+
+| Property | Meaning |
+|---|---|
+| `name` | The tag as an `Identifier`, `null` if anonymous. |
+| `members` | A `MemberDeclarationList`, `null` if there is no body (`struct S;`). |
+| `attributes` | Attributes after the keyword: `struct [[a]] S { int x; }`. |
+
+The list of members holds `MemberDeclaration` and `StaticAssertDeclaration` nodes. A
+`MemberDeclaration` has the `type`, the `name` (`null` for an anonymous member), the `width` of a
+bit-field, the `attributes` and the `specifiers`. As with the declarations at the root, each
+declarator is a node of its own.
+
+```php
+use FFI\Parser\Parser;
+
+$struct = new Parser()->parse('struct point { int x, y; union { int i; float f; } v; };')[0];
+
+echo $struct::class . "\n";
+echo $struct->type->name->value . "\n";
+
+foreach ($struct->type->members as $member) {
+    echo $member->name->value . ' ' . new ReflectionClass($member->type)->getShortName() . "\n";
+}
+
+// FFI\Parser\Node\Declaration\SpecifiedDeclaration\TagDeclaration
+// point
+// x IntType
+// y IntType
+// v UnionType
+```
+
+## Enumerations
+
+`EnumType` has the `name` (`null` if anonymous), the `underlyingType` after the colon, the
+`enumerators`, an `EnumeratorList` (`null` without a body, `enum E : int;`) and the `attributes`.
+An `Enumerator` has the `name`, the `value` (an expression, `null` if not written) and the
+`attributes`.
+
+```php
+use FFI\Parser\Parser;
+
+$enum = new Parser()->parse('enum color { RED, GREEN = 5, BLUE };')[0]->type;
+
+foreach ($enum->enumerators as $enumerator) {
+    echo $enumerator->name->value . ' ' . ($enumerator->value?->raw ?? '-') . "\n";
+}
+
+// RED -
+// GREEN 5
+// BLUE -
+```
+
+## Other wrappers
+
+| Class | Source |
+|---|---|
+| `SpecifiedType` | A type name with alignment specifiers or attributes, `alignas(8) int` in `sizeof(alignas(8) int)`. Holds `type` and `specifiers`. |
+| `AttributedType` | A non-function type with the attributes a declarator starts with, `int (__attribute__((x)) *p);`. Holds `attributes` and `type`. |

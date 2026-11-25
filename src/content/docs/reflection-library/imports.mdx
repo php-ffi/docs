@@ -1,0 +1,146 @@
+---
+title: "Imports"
+description: "Libraries a binary depends on and the symbols it takes from each of them."
+sidebar:
+  label: Imports
+  order: 3
+---
+
+Imports are the dependencies of a library. Each dependency has a name (the library it
+refers to) and a list of symbols the file takes from it.
+
+`getImports()` returns a list of `ReflectionImport` objects. As with exports, `getImport()`,
+`findImport()` and `hasImport()` look one up by name:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('sqlitejdbc.dll');
+
+foreach ($library->getImports() as $import) {
+    echo $import->getName() . ': ' . count($import->getSymbols()) . " symbols\n";
+}
+
+// KERNEL32.dll: 75 symbols
+// msvcrt.dll: 52 symbols
+```
+
+| Method | Returns |
+|---|---|
+| `getImports()` | `list<ReflectionImport>`, in the order of the image. |
+| `getImport($name, $caseInsensitive = false)` | The import, or throws `ImportNotFoundException`. |
+| `findImport($name, $caseInsensitive = false)` | The import, or `null`. |
+| `hasImport($name, $caseInsensitive = false)` | `bool`. |
+
+The name is compared exactly, as the file spells it. Windows file names are case
+insensitive and DLLs are often imported as `KERNEL32.dll`, so pass
+`caseInsensitive: true` there:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('sqlitejdbc.dll');
+
+var_dump($library->hasImport('kernel32.dll'));
+var_dump($library->hasImport('kernel32.dll', caseInsensitive: true));
+
+$kernel = $library->getImport('kernel32.dll', caseInsensitive: true);
+
+echo $kernel->getName() . "\n";
+
+// bool(false)
+// bool(true)
+// KERNEL32.dll
+```
+
+The name of an import is whatever the format records: a file name (`KERNEL32.dll`,
+`libc.so.6`) or an install path (`/usr/lib/libSystem.B.dylib`). It is not resolved against
+the file system.
+
+## Symbols of an import
+
+`ReflectionImport` has the same lookup methods for its symbols: `getSymbols()`,
+`getSymbol()` (throws `SymbolNotFoundException`), `findSymbol()` and `hasSymbol()`. The
+symbols are `ReflectionImportSymbol` objects, which share the
+[naming rules](../exports/#names) of the exported ones (`getName()`, `getNativeName()`,
+`isAnonymous()`, `isResolvable()`) and add two methods:
+
+| Method | Returns |
+|---|---|
+| `isOptional()` | `bool`: the file works without this symbol. For ELF it is a weak undefined symbol. |
+| `getVersion()` | `?string`: the symbol version requirement, for example `GLIBC_2.2.5`. Only ELF versions its symbols, other formats return `null`. |
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('sqlitejdbc.dll');
+
+$kernel = $library->getImport('kernel32.dll', caseInsensitive: true);
+
+var_dump($kernel->hasSymbol('CloseHandle'));
+var_dump($kernel->findSymbol('NoSuchFunction'));
+echo $kernel->getSymbol('CloseHandle') . "\n";
+
+// bool(true)
+// NULL
+// CloseHandle
+```
+
+Casting a symbol to a string gives its native name, followed by `@version` when it has a
+version. A PE symbol imported by ordinal has no name and is printed as `#` and the ordinal:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('C:/Windows/System32/AIComponentMgmt.dll');
+
+foreach ($library->getImports() as $import) {
+    foreach ($import->getSymbols() as $symbol) {
+        if ($symbol->isAnonymous()) {
+            echo $import . ' ' . $symbol . ' ' . $symbol->getOrdinal() . "\n";
+            break 2;
+        }
+    }
+}
+
+// OLEAUT32.dll #6 6
+```
+
+## Optional imports
+
+`ReflectionImport::isOptional()` tells whether the file can start without the library. What
+makes a dependency optional depends on the format: a delay-loaded DLL in PE, a weak
+`LC_LOAD_WEAK_DYLIB` command in Mach-O. ELF has no such flag, so its imports are never
+optional.
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('kernel32.dll');
+
+$names = $library->getImports()
+    |> array_filter(?, fn($import) => $import->isOptional())
+    |> array_map(fn($import) => $import->getName(), ?);
+
+echo implode("\n", $names) . "\n";
+
+// ext-ms-win-oobe-query-l1-1-0.dll
+// ext-ms-win-packagevirtualizationcontext-l1-1-0.dll
+// RPCRT4.dll
+```
+
+## What an import list contains
+
+How complete the list of symbols is depends on the format, because the formats differ in
+how they bind a symbol to a library:
+
+- PE and Mach-O use a two-level namespace: every imported symbol belongs to exactly one
+  library, so the list of an import is complete.
+- ELF uses a flat namespace: the file lists the libraries it needs and, separately, the
+  symbols it is missing, without saying which library provides which. The package can
+  attribute only the symbols that carry a version requirement (`printf@GLIBC_2.2.5`), so the
+  list of an ELF import is normally a subset of what the loader will actually take from
+  that library, and a symbol without a version is not listed at all.
+
+See [ELF](../formats/elf/), [PE](../formats/pe/) and [Mach-O](../formats/macho/) for the
+details.

@@ -1,0 +1,152 @@
+---
+title: "Transformers"
+description: "Rules that rewrite the tree after parsing: what the built-in ones do, and how to write your own."
+sidebar:
+  label: Transformers
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+C cannot be parsed without knowing which names are types. `(x)-1` is a subtraction if `x` is a
+variable and a cast of `-1` to the type `x` if it is a typedef name. The grammar of the parser
+does not look at the names, it picks one reading, and **transformers** fix the tree afterwards
+using the names declared so far.
+
+`Parser::parse()` runs them right after building the tree. `Parser::validate()` does not.
+
+```php
+use FFI\Parser\Parser;
+
+$source = 'int x; int y = (x)-1;';
+
+echo new ReflectionClass(new Parser()->parse($source)[1]->initializer)->getShortName() . "\n";
+echo new ReflectionClass(new Parser(transformerRules: [])->parse($source)[1]->initializer)->getShortName() . "\n";
+
+// SubExpression
+// CastExpression
+```
+
+## How they work
+
+`FFI\Parser\Transformer` runs a [`Traverser`](../traverser/) with a visitor that gives every node,
+after its children, to the rules that accept its class. A rule returns the replacement of the
+node, or `null` to keep it, and the returned node takes the place of the old one.
+
+While walking, the visitor keeps the names declared so far: the typedef names of the
+[preset](../presets/) and of the header, and the objects, functions, enumeration constants
+and parameters. A declaration in the header hides a typedef name of the preset, the parameters of a function live
+in a scope of their own, and a rule asks about a name through the `TransformationContext`.
+
+`Transformer` is a public class and works alone:
+
+```php
+use FFI\Parser\Parser;
+use FFI\Parser\Transformer;
+
+$declarations = new Parser(transformerRules: [])->parse('int x; int y = (x)-1;');
+
+echo new ReflectionClass($declarations[1]->initializer)->getShortName() . "\n";
+
+$declarations = Transformer::createDefault()->transform($declarations);
+
+echo new ReflectionClass($declarations[1]->initializer)->getShortName() . "\n";
+
+// CastExpression
+// SubExpression
+```
+
+`new Transformer($rules, $typedefNames)` takes the rules and the typedef names that exist before
+the first declaration, `Transformer::getDefaultRules($append)` returns the default rules followed by
+the rules you give, and `Transformer::createDefault($typedefNames)` is a transformer with the
+default rules. `transform()` changes the tree in place and returns the list of the root
+declarations.
+
+## Built-in rules
+
+All of them live in `FFI\Parser\Transformer\Rule` and are listed by `Transformer::getDefaultRules()`
+in this order.
+
+| Rule | What it does |
+|---|---|
+| `BinaryOperatorRule` | A cast to a parenthesized non-type name, followed by `+`, `-`, `*` or `&`, becomes a binary operator: `(x)-y` is a subtraction. |
+| `FunctionCallRule` | A cast to a parenthesized non-type name becomes a call: `(f)(x)` is the call `f(x)`. |
+| `OperatorPrecedenceRule` | Rearranges operators by precedence after the two rules above: `-(x)-y` is the subtraction of `y` from `-(x)`. |
+| `ParameterNameRule` | A parameter with a lone non-typedef name becomes a parameter of that name: in `void f(int (x));` the parameter `x` is an `int`. |
+| `ModifiedTypedefNameParameterRule` | In `void f(unsigned __int64);` the parameter is an unnamed `unsigned __int64`, not a parameter named `__int64`. |
+| `SizeOfExpressionOperandRule`, `TypeOfExpressionOperandRule`, `TypeOfUnqualExpressionOperandRule`, `AlignAsExpressionOperandRule`, `AlignOfExpressionOperandRule` | An operand parsed as a type name becomes an expression when the name is declared as other than a type: `sizeof(x)` is `sizeof (x)`. |
+| `SizeOfTypeNameOperandRule`, `TypeOfTypeNameOperandRule`, `TypeOfUnqualTypeNameOperandRule`, `AlignAsTypeNameOperandRule`, `AlignOfTypeNameOperandRule`, `BuiltinCallTypeNameOperandRule`, `GenericSelectionTypeNameOperandRule` | An operand parsed as an expression becomes a type name when it starts with a typedef name: `sizeof(T[3])`, `_Generic(T, ...)`, `__builtin_types_compatible_p(T, U[2])`. |
+
+<Aside type="note">
+The rules that turn an expression into a type name do not keep the offsets of `*`, `[` and
+the parenthesis of a function with parameters: the type they start has the offset of the node
+after them.
+</Aside>
+
+Without the typedef names a part of these rules has no data, so the same header gives different
+trees under different [presets](../presets/). The `sizeof(uint8_t[4])` example of that page shows it.
+
+## Writing a rule
+
+A rule implements `FFI\Parser\Transformer\TransformerRuleInterface`:
+
+| Method | Meaning |
+|---|---|
+| `getNodeClasses(): iterable` | The classes or interfaces of the nodes the rule accepts, one or several. |
+| `transform(NodeInterface $node, TransformationContext $context): ?NodeInterface` | The replacement of the node, `null` to keep it. |
+
+A rule that accepts one class is typed with the `@template TNode` of the interface, so that the
+node of `transform()` is known to a static analyzer.
+
+`TransformationContext` has the same `parents` and `declarations` as the context of the
+[traverser](../traverser/#context), and two more methods:
+
+| Method | Meaning |
+|---|---|
+| `isTypedefName(string $name): bool` | Whether the name is declared as a typedef name before the node. |
+| `isNonTypeName(string $name): bool` | Whether the name is declared as an object, a function, an enumeration constant or a parameter. `false` for an undeclared name. |
+
+A rule can change the node in place and return `null`. To use it pass it to the constructor. To
+keep the built-in rules put yours after them with `Transformer::getDefaultRules()`:
+
+```php
+use FFI\Parser\Node\Declaration\SpecifiedDeclaration\DeclaratorDeclaration\FunctionDeclaration;
+use FFI\Parser\Node\Identifier;
+use FFI\Parser\Node\NodeInterface;
+use FFI\Parser\Parser;
+use FFI\Parser\Transformer;
+use FFI\Parser\Transformer\TransformationContext;
+use FFI\Parser\Transformer\TransformerRuleInterface;
+
+final class PrefixFunctions implements TransformerRuleInterface
+{
+    public function getNodeClasses(): iterable
+    {
+        yield FunctionDeclaration::class;
+    }
+
+    public function transform(NodeInterface $node, TransformationContext $context): ?NodeInterface
+    {
+        $node->name = new Identifier('lib_' . $node->name->value, $node->name->offset);
+
+        return null;
+    }
+}
+
+$parser = new Parser(transformerRules: Transformer::getDefaultRules([new PrefixFunctions()]));
+
+foreach ($parser->parse('int open(void); void close(int fd);') as $declaration) {
+    echo $declaration->name->value . "\n";
+}
+
+// lib_open
+// lib_close
+```
+
+<Aside type="caution">
+Passing `transformerRules: [new PrefixFunctions()]` replaces the default rules instead of extending
+them, and the tree is ambiguous again, as in the first example of this page.
+</Aside>
+
+A rule that makes a tree the node classes cannot hold fails with a `NodeReplaceException`, see
+[Errors](../errors/#traverser-exceptions).

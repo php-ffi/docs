@@ -1,0 +1,86 @@
+---
+title: "Include and embed"
+description: "#include and #embed: how header names are searched and what the preprocessor puts in place of a binary resource."
+sidebar:
+  label: Include and embed
+  order: 6
+---
+
+`#include` and `#embed` find their files in the [file system](../filesystem/) of the
+preprocessor, `$pre->files`.
+
+## Include
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+$pre->files->add('config.h', "#pragma once\n#define VERSION 2\n");
+$pre->files->add('sys/types.h', "typedef int pid_t;\n");
+$pre->files->add('sys/proc.h', "#include \"types.h\"\npid_t spawn(void);\n");
+$pre->macros->define('CONFIG', '"config.h"');
+
+echo $pre->process(<<<'C'
+    #include "config.h"
+    #include CONFIG
+    #include <sys/proc.h>
+
+    int version = VERSION;
+    C);
+
+// typedef int pid_t;
+// pid_t spawn(void);
+// int version = 2;
+```
+
+The header name is `"name.h"` or `<name.h>`. It can also be produced by macros, as
+`#include CONFIG` does: the macros are expanded, and the result has to be exactly one
+header name.
+
+- `"name.h"` is searched in the directory of the including file first, then from the root
+  of the file system.
+- `<name.h>` is searched from the root only.
+
+So the `types.h` above is found by `"types.h"` from `sys/proc.h`, but
+`#include <types.h>` would not find it.
+
+The included file is preprocessed with the macros defined at that moment, and its
+definitions stay visible after the `#include`. The file that includes itself, directly or
+not, stops at `maxIncludeDepth` with
+`FFI\Preprocessor\Directive\Exception\IncludeDepthException`. Include guards and
+`#pragma once` work as usual.
+
+A file that is not found is an error [diagnostic](../diagnostics/):
+`#include: file "name.h" is not found`. By default it throws `DiagnosticException`; with a
+listener that does not throw, the directive leaves nothing in the output and the run
+goes on.
+
+A body that is not a header name throws
+`FFI\Preprocessor\Directive\Exception\InvalidDirectiveBodyException`.
+
+## Embed
+
+`#embed` replaces the directive with the bytes of a file as decimal numbers separated by
+commas, ready to be an initializer of an array:
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+$pre->files->add('logo.bin', "\x01\x02\xff");
+
+echo $pre->process("const unsigned char logo[] = {\n#embed \"logo.bin\"\n};\n");
+
+// const unsigned char logo[] = {
+// 1,2,255};
+```
+
+The numbers are put in place of the directive line, no line break is added after them.
+An empty file gives no text at all. The header name is searched the same way as for
+`#include`.
+
+`#embed` takes only the file name. The parameters of C23 (`limit`, `prefix`, `suffix`,
+`if_empty`) are not implemented: they are reported as a warning
+(`Extra tokens at the end of #embed directive`) and ignored. `__has_embed` is not
+supported either, see [limitations](../limitations/). The `__STDC_EMBED_*` macros are
+defined, though.

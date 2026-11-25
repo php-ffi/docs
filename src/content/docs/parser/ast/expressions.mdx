@@ -1,0 +1,133 @@
+---
+title: "Expressions and initializers"
+description: "The nodes of expressions: operators, calls, casts, sizeof, generic selection, and the initializers that hold them."
+sidebar:
+  label: Expressions
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Expressions appear where C wants a constant: the size of an array, the value of an enumerator,
+the width of a bit-field, the condition of `static_assert`, the operand of `sizeof`, the
+initializer of a variable. They live in `FFI\Parser\Node\Expression` and implement
+`ExpressionInterface`. The [literals](../literals/) are expressions too.
+
+The operator is the class of the node, as with the kinds elsewhere in the tree.
+
+## Operators
+
+| Group | Base class | Properties | Classes |
+|---|---|---|---|
+| Binary | `BinaryExpression` | `left`, `right` | `AddExpression`, `SubExpression`, `MulExpression`, `DivExpression`, `RemExpression`, `ShiftLeftExpression`, `ShiftRightExpression`, `LessExpression`, `LessOrEqualExpression`, `GreaterExpression`, `GreaterOrEqualExpression`, `EqualExpression`, `NotEqualExpression`, `BitwiseAndExpression`, `BitwiseOrExpression`, `BitwiseXorExpression`, `LogicalAndExpression`, `LogicalOrExpression`, `CommaExpression` |
+| Assignment | `AssignmentExpression` | `left`, `right` | `AssignExpression`, `AddAssignExpression`, `SubAssignExpression`, `MulAssignExpression`, `DivAssignExpression`, `RemAssignExpression`, `ShiftLeftAssignExpression`, `ShiftRightAssignExpression`, `BitwiseAndAssignExpression`, `BitwiseOrAssignExpression`, `BitwiseXorAssignExpression` |
+| Prefix | `UnaryExpression` | `operand` | `PlusExpression`, `MinusExpression`, `BitwiseNotExpression`, `LogicalNotExpression`, `AddressOfExpression`, `DereferenceExpression`, `PreIncrementExpression`, `PreDecrementExpression`, `RealPartExpression`, `ImagPartExpression` |
+| Postfix | `PostfixExpression` | `operand` | `PostIncrementExpression`, `PostDecrementExpression` |
+
+The binary classes live in the namespace `...\Expression\BinaryExpression`, the others in
+the sub-namespace of their base class. The parenthesized `(a + b)` is a `ParenExpression` with
+the `expression`: the grouping of the source is kept.
+
+```php
+use FFI\Parser\Node\Expression\BinaryExpression;
+use FFI\Parser\Node\Expression\ExpressionInterface;
+use FFI\Parser\Node\Expression\IdentifierExpression;
+use FFI\Parser\Node\Expression\ParenExpression;
+use FFI\Parser\Node\Literal\IntLiteral;
+use FFI\Parser\Parser;
+
+function render(ExpressionInterface $expression): string
+{
+    return match (true) {
+        $expression instanceof IntLiteral => $expression->raw,
+        $expression instanceof IdentifierExpression => $expression->name->value,
+        $expression instanceof ParenExpression => '(' . render($expression->expression) . ')',
+        $expression instanceof BinaryExpression => '[' . render($expression->left)
+            . ' ' . new ReflectionClass($expression)->getShortName() . ' '
+            . render($expression->right) . ']',
+        default => $expression::class,
+    };
+}
+
+$declaration = new Parser()->parse('int v = a + b * (c - 1) << 2;')[0];
+
+echo render($declaration->initializer) . "\n";
+
+// [[a AddExpression [b MulExpression ([c SubExpression 1])]] ShiftLeftExpression 2]
+```
+
+The precedence of C is already applied: the product is inside the sum, and the sum is inside the
+shift.
+
+## Other expressions
+
+| Class | Source | Properties |
+|---|---|---|
+| `IdentifierExpression` | `x`: an enumerator, a variable or a macro the preprocessor left as is | `name` |
+| `CallExpression` | `f(x, y)` | `function`, `arguments` |
+| `BuiltinCallExpression` | `__builtin_offsetof(struct S, a)`: a `__builtin_` call with a type among the arguments | `name`, `arguments` |
+| `SubscriptExpression` | `a[i]` | `array`, `index` |
+| `DirectMemberExpression`, `PointerMemberExpression` | `s.m`, `p->m` | `object`, `member` |
+| `CastExpression` | `(T)x` | `type`, `operand` |
+| `ConditionalExpression` | `c ? a : b`, GCC `c ?: b` | `condition`, `then` (`null` when omitted), `else` |
+| `SizeOfExpression`, `SizeOfTypeExpression` | `sizeof x`, `sizeof(T)` | `operand`, `type` |
+| `AlignOfTypeExpression`, `AlignOfExpression` | `alignof(T)`, GCC `__alignof__ x` | `type`, `operand` |
+| `GenericSelectionExpression` | `_Generic(x, int: 1, default: 0)` | `operand`, `associations` of `GenericAssociation` (`type`, `expression`; `type` is `null` for `default`) |
+| `CompoundLiteralExpression` | `(int[]){1, 2}` | `type`, `initializer`, `specifiers` |
+| `ConcatenatedStringExpression` | `"a" "b"`: adjacent strings | `parts`, a `list` of `StringLiteral` |
+| `StatementExpression` | GCC `({ int y = x; y * 2; })` | `body`, the text as written |
+
+The operand of `sizeof` comes in two classes, one for an expression and one for a type name. The
+parser decides which one it is by the names it knows:
+
+```php
+use FFI\Parser\Parser;
+
+foreach (['int a = sizeof(int);', 'int a = sizeof x;', 'int a = (char)65;'] as $source) {
+    echo new ReflectionClass(new Parser()->parse($source)[0]->initializer)->getShortName() . "\n";
+}
+
+// SizeOfTypeExpression
+// SizeOfExpression
+// CastExpression
+```
+
+<Aside type="caution" title="Names decide">
+`sizeof(x)`, `(x)-1` and `(x)(y)` read the same as a type name or a variable. The
+[transformers](../../transformers/) settle it by the declarations that came before and by the
+typedef names of the [preset](../../presets/), so a different preset can give a different tree.
+</Aside>
+
+`ConcatenatedStringExpression` keeps the parts apart, each with its own prefix. `"a" "b"`
+is a `ConcatenatedStringExpression`, a single `"a"` is a `StringLiteral`.
+
+## Initializers
+
+`InitializerInterface` is implemented by every expression and by `InitializerList`: the value
+after `=` is either an expression or a list in braces. `DeclaratorDeclaration::$initializer` holds it.
+
+`InitializerList` is a list like the others (its `items`, `foreach`, `count`), but it starts at
+the opening brace. Each item is an initializer or a `DesignatedInitializer`: a `DesignatorList`
+and the `initializer` they select.
+
+| Designator | Source | Properties |
+|---|---|---|
+| `MemberDesignator` | `.a` | `member` |
+| `IndexDesignator` | `[2]` | `index` |
+| `RangeDesignator` | `[0 ... 3]`, GCC | `first`, `last` |
+
+```php
+use FFI\Parser\Node\Initializer\InitializerList\DesignatedInitializer;
+use FFI\Parser\Parser;
+
+$variable = new Parser()->parse('int v[3] = { 1, [2] = 5 };')[0];
+
+foreach ($variable->initializer as $item) {
+    echo $item instanceof DesignatedInitializer
+        ? 'designated [' . $item->designators[0]->index->raw . '] = ' . $item->initializer->raw . "\n"
+        : 'item ' . $item->raw . "\n";
+}
+
+// item 1
+// designated [2] = 5
+```

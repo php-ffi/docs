@@ -1,0 +1,117 @@
+---
+title: "Work directory"
+description: "Reads and changes the directory where a library searches for its dependencies, in thread-safe PHP builds too."
+sidebar:
+  label: Overview
+  order: 0
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`ffi/work-directory` reads and changes the working directory of the process in a way
+that also works in thread-safe (ZTS) PHP builds, where the built-in
+[`chdir()`](https://www.php.net/manual/en/function.chdir.php) does not affect the
+loader.
+
+## Why it is needed
+
+A library loaded through FFI may depend on other libraries. The loader looks for them
+next to the library itself and in the working directory. When the dependencies live
+somewhere else, the load fails with an error like "can not load":
+
+```text
+bin/
+  main.dll
+  other/
+    dependency.dll
+```
+
+```php
+// "dependency.dll" is neither in "bin" nor in the working directory.
+$ffi = FFI::cdef('...', __DIR__ . '/bin/main.dll');
+```
+
+Point the loader to the directory with the dependencies before loading the library:
+
+```php
+use FFI\WorkDirectory\WorkDirectory;
+
+WorkDirectory::set(__DIR__ . '/bin/other');
+
+$ffi = FFI::cdef('...', __DIR__ . '/bin/main.dll');
+```
+
+In a non-thread-safe PHP build `chdir()` is enough, but in a thread-safe one it is
+not (see [the remark in the manual](https://www.php.net/manual/en/function.chdir.php#refsect1-function.chdir-notes)).
+This package picks the right way for the current build and platform.
+
+## Installation
+
+```bash
+composer require ffi/work-directory
+```
+
+Requires PHP 7.4 or later and `ext-mbstring`. In a thread-safe build `ext-ffi`
+is required as well, see [`ffi/env`](/utils/env/) for checking it. The package
+depends on `ffi/env` and installs it by itself.
+
+<Aside type="note">
+The package supports PHP 7.4, the examples on this page use the syntax of the
+current PHP version.
+</Aside>
+
+## Reading and changing
+
+The API is two static methods of `FFI\WorkDirectory\WorkDirectory`.
+
+| Method | Returns | Meaning |
+|---|---|---|
+| `WorkDirectory::get()` | `?string` | The current directory, or `null` when it cannot be determined. |
+| `WorkDirectory::set(string $directory)` | `bool` | `true` when the directory was changed, `false` otherwise. |
+
+```php
+use FFI\WorkDirectory\WorkDirectory;
+
+if (WorkDirectory::set('C:\Windows\System32')) {
+    echo 'Work directory is: ' . WorkDirectory::get() . "\n";
+}
+
+// Work directory is: C:\Windows\System32
+```
+
+## What happens in each build
+
+The way to change the directory is chosen on the first call and kept until the end of
+the script.
+
+| Build | `set()` | `get()` |
+|---|---|---|
+| Non-thread-safe, any OS | Calls `chdir()`. A failure produces the usual PHP warning and returns `false`. | Calls `getcwd()`, returns `null` on failure. |
+| Thread-safe, Windows | Calls `SetDllDirectory` of `kernel32.dll`. | Returns the directory that was set, or the initial directory (see below). |
+| Thread-safe, Linux | Puts the directory first in `LD_LIBRARY_PATH`. | Returns the first entry of `LD_LIBRARY_PATH`, or the initial directory. |
+| Thread-safe, macOS | Puts the directory first in `DYLD_LIBRARY_PATH`. | Returns the first entry of `DYLD_LIBRARY_PATH`, or the initial directory. |
+
+A few details of the thread-safe variants:
+
+- The process working directory does not change: `getcwd()` still returns the old
+  value. What changes is the place where the loader looks for dependencies, and
+  `get()` reports exactly that place.
+- On Linux and macOS the directory is added to the front of the existing list, an
+  earlier entry with the same value is removed, other entries stay. The directory is
+  not checked for existence.
+- On Windows the directory is not checked either: `set()` returns `true` for a
+  directory that does not exist. Non-ASCII paths are supported, they are converted to
+  UTF-16.
+- The initial directory is the value of `getcwd()` taken when the driver is created,
+  with the directory of `SCRIPT_NAME`, `SCRIPT_FILENAME` or `PHP_SELF` from `$_SERVER`
+  as a fallback.
+- The first call throws `FFI\Env\Exception\EnvironmentException` when FFI is not
+  available (see [`ffi/env`](/utils/env/)).
+
+<Aside type="caution">
+The build is detected by the check `PHP_ZTS === 0`. Since the constant became a
+boolean in recent PHP versions (it is `false` in 8.4, 8.5 and 8.6 NTS builds on
+Windows), that check does not match there and the thread-safe variant is used even in
+a non-thread-safe build: `set()` then does not change the directory of the process,
+and `ext-ffi` is required.
+</Aside>

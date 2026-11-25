@@ -1,0 +1,99 @@
+---
+title: "Mach-O"
+description: "Reading macOS dylibs: underscore-prefixed names, dependency kinds, versions and library ordinals."
+sidebar:
+  label: Mach-O
+  order: 3
+---
+
+Mach-O is the format of `*.dylib` and `*.bundle` files on macOS and iOS. Both 32-bit and
+64-bit images of either byte order are read. Universal ("fat") archives are not:
+see [Formats](../#not-supported).
+
+## Exports
+
+Exports are the terminal nodes of the dyld export trie. If a stripped image has no trie,
+the driver falls back to the symbol table. The symbols are `MachOReflectionExportSymbol`
+objects, which add nothing to the [common API](../../exports/): they are always `Public`,
+`Global` or `Weak` (when the entry is marked weak), with the `Default` calling convention.
+A re-exported symbol has a forwarder, formatted as `Library.Symbol` with the install name
+of the library it is re-exported from.
+
+Darwin prefixes every C symbol with an underscore. `getNativeName()` keeps it and `getName()`
+drops it, which is the name you pass to `FFI::cdef()`:
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('libsqlitejdbc.dylib');
+
+$symbol = $library->getSymbol('JNI_OnLoad');
+
+echo $symbol->getNativeName() . ' ' . $symbol->getName() . ' ' . $symbol->getBinding()->name . "\n";
+
+// _JNI_OnLoad JNI_OnLoad Global
+```
+
+## Imports
+
+Every dylib load command is a `MachOReflectionImport`, in the order of the commands. The
+name is the install name of the library, which is the path the loader looks it up by
+(`/usr/lib/libSystem.B.dylib`). Besides the common methods it has:
+
+| Method | Returns |
+|---|---|
+| `getKind()` | `DylibKind`, the kind of the load command. |
+| `getCurrentVersion()` | `string`, the version the image was linked against, as `major.minor.patch`. |
+| `getCompatibilityVersion()` | `string`, the oldest compatible version, as `major.minor.patch`. |
+| `getOrdinal()` | `int`, the one-based index of the command. Symbols refer to the library by it. |
+
+`FFI\Reflection\ReflectionLibrary\Reader\MachO\DylibKind` has the cases `Load`,
+`LoadWeak`, `Reexport`, `LazyLoad` and `LoadUpward`. Only `LoadWeak` makes an import
+optional (`DylibKind::isOptional()`).
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+use FFI\Reflection\ReflectionLibrary\Reader\MachO\MachOReflectionImport;
+
+$library = new ReflectionLibrary('libsqlitejdbc.dylib');
+
+foreach ($library->getImports() as $import) {
+    if ($import instanceof MachOReflectionImport) {
+        echo $import->getName() . "\n";
+        echo $import->getKind()->name . ' #' . $import->getOrdinal() . "\n";
+        echo $import->getCurrentVersion() . ' (compatible with ' . $import->getCompatibilityVersion() . ")\n";
+    }
+}
+
+// /usr/lib/libSystem.B.dylib
+// Load #1
+// 1213.0.0 (compatible with 1.0.0)
+```
+
+Since Mach-O images use a two-level namespace, every undefined symbol carries the ordinal
+of the library that provides it, and the list of symbols of an import is complete. Symbols
+(`MachOReflectionImportSymbol`) are not versioned. They add:
+
+- `getLibraryOrdinal()`, the ordinal of the providing library. Besides the one-based
+  ordinals of load commands there are special values, available as constants of the class:
+  `SELF_LIBRARY_ORDINAL` (`0`, the image itself), `DYNAMIC_LOOKUP_ORDINAL` (`0xFE`) and
+  `EXECUTABLE_ORDINAL` (`0xFF`, the executable that loads the image).
+- `isDynamicLookup()`, which is `true` for the flat namespace lookup: the symbol is not bound
+  to a particular library.
+
+```php
+use FFI\Reflection\ReflectionLibrary;
+
+$library = new ReflectionLibrary('libsqlitejdbc.dylib');
+
+$import = $library->getImport('/usr/lib/libSystem.B.dylib');
+$symbol = $import->getSymbols()[0];
+
+echo $symbol->getNativeName() . ' ' . $symbol->getName() . "\n";
+echo $symbol->getLibraryOrdinal() . "\n";
+var_dump($symbol->isDynamicLookup());
+
+// __DefaultRuneLocale _DefaultRuneLocale
+// 1
+// bool(false)
+```

@@ -1,0 +1,133 @@
+---
+title: "Env"
+description: "Tells whether the FFI extension can be used in the current runtime, and why not when it cannot."
+sidebar:
+  label: Overview
+  order: 0
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`ffi/env` tells whether the [FFI extension](https://www.php.net/manual/en/book.ffi.php)
+can be used in the current runtime. It reads the state of `ext-ffi` and of the
+`ffi.enable` directive and turns it into a status, a boolean or an exception with a
+message that explains what is wrong.
+
+## Installation
+
+```bash
+composer require ffi/env
+```
+
+Requires PHP 7.4 or later. The package does not need `ext-ffi` itself: its whole
+point is to work when the extension is missing.
+
+<Aside type="note">
+The package supports PHP 7.4, the examples on this page use the syntax of the
+current PHP version.
+</Aside>
+
+## Status
+
+`FFI\Env\Runtime::getStatus()` returns one of the `FFI\Env\Status` constants:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `Status::NOT_AVAILABLE` | `0` | `ext-ffi` is not loaded. |
+| `Status::DISABLED` | `1` | The extension is loaded, but `ffi.enable` is off: `0`, `false` or any other value that is neither a true boolean nor `preload`. |
+| `Status::ENABLED` | `2` | The extension is enabled in every SAPI: `ffi.enable=1` (`true`, `on`, `yes` and non-zero numbers count as well). |
+| `Status::CLI_ENABLED` | `3` | `ffi.enable=preload`: the FFI API works in the `cli` SAPI and in preload scripts only. This is the default value of the directive. |
+
+```php
+use FFI\Env\Runtime;
+use FFI\Env\Status;
+
+echo match (Runtime::getStatus()) {
+    Status::NOT_AVAILABLE => 'ext-ffi is not loaded',
+    Status::DISABLED => 'ext-ffi is disabled',
+    Status::ENABLED => 'ext-ffi is enabled',
+    Status::CLI_ENABLED => 'ext-ffi is enabled in CLI and preload only',
+} . "\n";
+
+// php -d ffi.enable=preload example.php
+// ext-ffi is enabled in CLI and preload only
+```
+
+## Checking availability
+
+`Runtime::isAvailable()` answers the question that usually matters: can FFI code
+run here and now. It returns `true` for `Status::ENABLED`, and for
+`Status::CLI_ENABLED` only when the current SAPI is `cli`.
+
+```php
+use FFI\Env\Runtime;
+
+var_dump(Runtime::isAvailable());
+
+// php -d ffi.enable=1 example.php  → bool(true)
+// php -d ffi.enable=0 example.php  → bool(false)
+```
+
+<Aside type="caution">
+Under `ffi.enable=preload` a web SAPI (FPM, Apache) is reported as unavailable even
+inside a preload script: the package cannot tell a preload script from a regular
+request.
+</Aside>
+
+Both methods accept a status as an argument, so a status read once can be reused:
+
+```php
+use FFI\Env\Runtime;
+
+$status = Runtime::getStatus();
+
+if (!Runtime::isAvailable($status)) {
+    // ...
+}
+```
+
+## Requiring FFI
+
+`Runtime::assertAvailable()` returns `true` when FFI is available and throws
+`FFI\Env\Exception\EnvironmentException` otherwise. The message explains the
+reason, the exception code is the status.
+
+```php
+use FFI\Env\Exception\EnvironmentException;
+use FFI\Env\Runtime;
+
+try {
+    Runtime::assertAvailable();
+} catch (EnvironmentException $e) {
+    echo $e->getMessage() . ' (code ' . $e->getCode() . ")\n";
+}
+
+// php -d ffi.enable=0 example.php
+// An [ext-ffi] disabled in your php.ini (code 1)
+```
+
+| Status | Message |
+|---|---|
+| `NOT_AVAILABLE` | `An [ext-ffi] not available` |
+| `DISABLED` | `An [ext-ffi] disabled in your php.ini` |
+| `CLI_ENABLED`, outside of `cli` | `An [ext-ffi] can only be run in "cli" mode, but the current mode is "<sapi>" does not meet required runtime parameters` |
+
+`EnvironmentException` extends `DomainException`. The message for a status is also
+available without throwing: `EnvironmentException::getErrorMessageFromStatus()`.
+
+## Checking only in development
+
+Since `assertAvailable()` returns `true`, it fits into `assert()`. With
+`zend.assertions=-1`, the usual production setting, PHP does not compile the
+assertion at all and the check costs nothing:
+
+```php
+use FFI\Env\Exception\EnvironmentException;
+use FFI\Env\Runtime;
+
+// Throws EnvironmentException when FFI is not available.
+assert(Runtime::assertAvailable());
+
+// Or throws AssertionError with the message of the status.
+assert(Runtime::isAvailable(), EnvironmentException::getErrorMessageFromStatus());
+```

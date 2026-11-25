@@ -1,0 +1,171 @@
+---
+title: "Syntax tree"
+description: "How the tree returned by the parser is built: node classes, positions, lists and what to expect from every node."
+sidebar:
+  label: Overview
+  order: 0
+---
+
+`Parser::parse()` returns the tree as plain PHP objects from the namespace `FFI\Parser\Node`.
+The classes are grouped into layers, each layer has its own page:
+
+| Layer | Namespace | Interface | Page |
+|---|---|---|---|
+| Declarations | `FFI\Parser\Node\Declaration` | `DeclarationInterface`, `RootDeclarationInterface` | [Declarations](./declarations/) |
+| Types | `FFI\Parser\Node\Type` | `TypeInterface` | [Types](./types/) |
+| Specifiers | `FFI\Parser\Node\Specifier` | `SpecifierInterface` | [Specifiers and attributes](./specifiers/) |
+| Attributes | `FFI\Parser\Node\Attribute` | `AttributeInterface` | [Specifiers and attributes](./specifiers/) |
+| Expressions | `FFI\Parser\Node\Expression` | `ExpressionInterface` | [Expressions](./expressions/) |
+| Literals | `FFI\Parser\Node\Literal` | `LiteralInterface` | [Literals](./literals/) |
+| Initializers | `FFI\Parser\Node\Initializer` | `InitializerInterface` | [Expressions](./expressions/#initializers) |
+
+Every node implements `FFI\Parser\Node\NodeInterface`.
+
+## The class is the kind
+
+The kind of a node is its class, there is no `kind` field to compare. The operator of a binary
+expression is `AddExpression` or `ShiftLeftExpression`, the base of an integer constant is
+`HexIntLiteral` or `BinIntLiteral`, an array with a size is a `SizedArrayType`. To branch on the
+kind use `instanceof` or `match (true)`.
+
+```php
+use FFI\Parser\Node\Type\ArrayType\SizedArrayType;
+use FFI\Parser\Node\Type\BuiltinType\CharType;
+use FFI\Parser\Node\Type\BuiltinType\IntType;
+use FFI\Parser\Node\Type\PointerType;
+use FFI\Parser\Node\Type\TypeInterface;
+use FFI\Parser\Parser;
+
+function describe(?TypeInterface $type): string
+{
+    return match (true) {
+        $type === null => '<no type>',
+        $type instanceof IntType => 'int',
+        $type instanceof CharType => 'char',
+        $type instanceof PointerType => describe($type->type) . ' *',
+        $type instanceof SizedArrayType => describe($type->type) . '[' . $type->size->raw . ']',
+        default => $type::class,
+    };
+}
+
+foreach (new Parser()->parse('char *names[4]; int *p;') as $declaration) {
+    echo $declaration->name->value . ': ' . describe($declaration->type) . "\n";
+}
+
+// names: char *[4]
+// p: int *
+```
+
+The nodes form a tree that follows the declarator: in `int *names[16]` the declared name has a
+`SizedArrayType`, which holds a `PointerType`, which holds an `IntType`.
+
+```php
+use FFI\Parser\Parser;
+
+$declaration = new Parser()->parse('int *names[16];')[0];
+
+echo $declaration->type::class . "\n";
+echo $declaration->type->type::class . "\n";
+echo $declaration->type->type->type::class . "\n";
+echo $declaration->type->size->value . "\n";
+
+// FFI\Parser\Node\Type\ArrayType\SizedArrayType
+// FFI\Parser\Node\Type\PointerType
+// FFI\Parser\Node\Type\BuiltinType\IntType
+// 16
+```
+
+## Positions
+
+Every node has the read-only property `offset`: the offset in bytes of its first byte in the
+source. A node created by hand has the offset `0`.
+
+```php
+use FFI\Parser\Parser;
+
+$declarations = new Parser()->parse("int a;\nint b;");
+
+echo $declarations[1]->offset . ' ' . $declarations[1]->name->offset . "\n";
+
+// 7 11
+```
+
+The offset points to the start of the node, not to the end. The exceptions of the parser carry
+the offset and the length of the fragment they are about, see [Errors](../errors/).
+
+## Lists
+
+A group of nodes of one kind is a list: `ParameterList`, `MemberDeclarationList`,
+`EnumeratorList`, `SpecifierList`, `AttributeList` and others. All of them extend
+`FFI\Parser\Node\NodeList` and are used like an array:
+
+- `count($list)` and `foreach ($list as $index => $item)`;
+- `$list[0]`, which gives `null` for a missing index, and `$list[] = $node`;
+- `$list->items` is the public `list` of the nodes;
+- `first()` and `last()` give a node or `null`, `findIndex($node)` gives the index of a node or
+  `null`.
+
+```php
+use FFI\Parser\Parser;
+
+$function = new Parser()->parse('int f(char *s, ...);')[0];
+$parameters = $function->type->parameters;
+
+echo count($parameters) . ' ' . $parameters[0]->name->value . "\n";
+var_dump($function->type->isVariadic);
+
+// 1 s
+// bool(true)
+```
+
+The trailing `...` is not in the list, it is the flag `isVariadic` of the function type.
+
+## Optional parts and the type
+
+A part that may be absent in the source is `null` in the tree: `$parameter->name` of the unnamed
+parameter in `void f(int);`, `$enumerator->value` of `A` in `enum { A }`, `$declaration->initializer`
+of a declaration without `=`. The list `$declaration->specifiers` is `null`, and not an empty
+list, if no specifier is written.
+
+The `type` of a declaration is also `null` when no type specifier is written. The default
+validators accept it only where the type is inferred, as in `auto x = 1;`: the declaration of `x`
+has the type `null`. `static x = 1;` and `static;` fail with a `ValidationException`.
+
+## Mutability
+
+The nodes that have children are mutable: their properties are public and writable, which is
+what [transformers](../transformers/) and [visitors](../traverser/) rely on. The leaves are not:
+`Identifier`, the [literals](./literals/), the nodes that keep raw text (`FunctionBody`,
+`BalancedTokenSequence`, `StatementExpression`) and `offset` are `readonly`. To change a name,
+replace the whole `Identifier`:
+
+```php
+use FFI\Parser\Node\Identifier;
+use FFI\Parser\Parser;
+
+$declaration = new Parser()->parse('int x;')[0];
+
+$declaration->name = new Identifier('y');
+
+echo $declaration->name->value . "\n";
+
+// y
+```
+
+## Shared nodes
+
+The declarators of one declaration share the nodes of the specifiers. In `struct S { int a; } x, y;`
+the declarations of `x` and `y` hold the very same `StructType` object, not copies:
+
+```php
+use FFI\Parser\Parser;
+
+[$x, $y] = new Parser()->parse('struct S { int a; } x, y;');
+
+var_dump($x->type === $y->type);
+
+// bool(true)
+```
+
+A [visitor](../traverser/) visits such a node once, and what it returns replaces the node in every
+parent.

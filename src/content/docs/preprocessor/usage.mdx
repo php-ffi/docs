@@ -1,0 +1,123 @@
+---
+title: "Usage"
+description: "The Preprocessor class: sources it accepts, the settings of a run and how the configuration is shared between runs."
+sidebar:
+  label: Usage
+  order: 1
+---
+
+## Sources
+
+`Preprocessor::process()` accepts whatever the phplrt source factory can read:
+
+- a `string` is the source text itself, not a path;
+- an `SplFileInfo` is a file;
+- a stream resource;
+- any `Phplrt\Contracts\Source\ReadableInterface` object.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+
+echo $pre->process(new SplFileInfo(__DIR__ . '/header.h'));
+```
+
+A file is known to the preprocessor by its real pathname. Anything else (a string, a
+stream) is known as `{entrypoint}`: that is what `__FILE__` expands to and what the
+[diagnostics](../diagnostics/) show.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+echo new Preprocessor()->process("__FILE__ __LINE__\n");
+
+// "{entrypoint}" 1
+```
+
+An `#include "name.h"` in a file read from disk is searched next to that file first,
+see [file system](../filesystem/).
+
+## The run is lazy
+
+`process()` does not read the source: it returns a `Result` and the work is done while
+the result is read. Failures of the source itself (a malformed `#if`, a missing `#endif`)
+are thrown at that moment, not by `process()`. See [errors](../errors/).
+
+```php
+use FFI\Preprocessor\Exception\PreprocessorException;
+use FFI\Preprocessor\Preprocessor;
+
+$result = new Preprocessor()->process("#endif\n");
+
+echo "process() did not throw\n";
+
+try {
+    echo $result;
+} catch (PreprocessorException $e) {
+    echo $e::class . ': ' . $e->getMessage() . "\n";
+}
+
+// process() did not throw
+// FFI\Preprocessor\Directive\Exception\MisplacedDirectiveException: #endif without #if
+```
+
+## Configuration
+
+Every constructor argument is optional, a missing one is the default of the standard.
+
+| Argument | Type | Default |
+|---|---|---|
+| `sources` | `SourceFactoryInterface` | phplrt `SourceFactory::createDefault()`. |
+| `macros` | `MacroRepositoryInterface` | Macros that are defined before every run, over the predefined ones. |
+| `directives` | `DirectiveRepositoryInterface` | The handlers of the [supported directives](../directives/). |
+| `files` | `FileSystemInterface` | Searched after the virtual and the real file system. |
+| `diagnostic` | `DiagnosticListenerInterface` | `ThrowingDiagnosticListener`: an error throws, a warning is skipped. |
+| `clock` | `Psr\Clock\ClockInterface` | The system clock, for `__DATE__` and `__TIME__`. |
+| `maxIncludeDepth` | `int` | `200`: the number of files open at once, the first one included. |
+
+The arguments have names, so you pass only what you change:
+
+```php
+use FFI\Preprocessor\Diagnostic\DiagnosticListener\NullDiagnosticListener;
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor(
+    diagnostic: new NullDiagnosticListener(),
+    maxIncludeDepth: 20,
+);
+```
+
+A file that includes itself is stopped by `maxIncludeDepth` with
+`FFI\Preprocessor\Directive\Exception\IncludeDepthException`.
+
+## Shared state
+
+The object has four public properties that you configure before the runs:
+
+| Property | Holds | Page |
+|---|---|---|
+| `$pre->macros` | `MacroRepository`: the macros every run starts with. | [Macros](../macros/) |
+| `$pre->directives` | The directive handlers. | [Custom directives](../custom-directives/) |
+| `$pre->files` | `VirtualFileSystem`: files and directories `#include` can see. | [File system](../filesystem/) |
+| `$pre->diagnostic` | The listener of `#error` and `#warning`. | [Diagnostics](../diagnostics/) |
+
+A run does not change them: every run works on its own copy of the macros, so a
+`#define` in one source is not seen by the next `process()` call.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+$pre->macros->define('LEVEL', '3');
+
+$first = $pre->process("#define LOCAL 5\nLEVEL LOCAL\n");
+
+echo $first;
+
+var_dump($first->hasMacro('LOCAL'), $pre->macros->find('LOCAL'));
+
+// 3 5
+// bool(true)
+// NULL
+```

@@ -1,0 +1,147 @@
+---
+title: "File system"
+description: "Where #include, #embed and __has_include look for files: virtual files, linked and mounted directories, the real file system."
+sidebar:
+  label: File system
+  order: 8
+---
+
+`#include`, `#embed` and `__has_include` look for a file in the file system of the
+preprocessor. A search goes through three places, in this order:
+
+1. `$pre->files`, the virtual file system you fill in;
+2. the real file system: an absolute pathname, or a pathname relative to the directory of
+   the including file when that file is a real one;
+3. the file system you gave to the constructor as the `files` argument, if any.
+
+A header is not found on the disk unless you say where to look. Mount the include
+directories of your headers, as you would pass `-I` to a compiler.
+
+## Virtual file system
+
+`$pre->files` is a `FFI\Preprocessor\FileSystem\VirtualFileSystem`. The virtual
+pathnames use `/` or `\`, `.` and `..` are resolved, so `sys\a.h`, `./sys/a.h` and
+`/sys/a.h` are one file. They are case-sensitive. `..` at the root stays at the root: a
+header cannot leave the virtual root.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+
+// Define a file by its contents
+$pre->files->add('config.h', '#define VERSION 2');
+
+// Any source the preprocessor accepts: a file, a stream, ...
+$pre->files->add('main.h', new SplFileInfo(__DIR__ . '/include/main.h'));
+
+// Make a real file visible under a virtual name
+$pre->files->link('lib/gl.h', __DIR__ . '/gl/gl.h');
+
+// Mount a real directory: `#include <common/types.h>` is searched in it
+$pre->files->mount(__DIR__ . '/include');
+
+// Mount it under a virtual directory: `#include <sdk/a.h>`
+$pre->files->mount(__DIR__ . '/sdk', 'sdk');
+
+echo $pre->process("#include <config.h>\n#include <lib/gl.h>\n#include <sdk/a.h>\n#include <common/types.h>\nVERSION\n");
+
+// int gl;
+// int sdk_a;
+// typedef int id_t;
+// 2
+```
+
+| Method | Does |
+|---|---|
+| `add(string $pathname, mixed $source)` | A file of the given contents under a virtual name. A file of the same name is replaced. |
+| `link(string $pathname, string $target)` | A real file under a virtual name. It is read at the moment of the inclusion. |
+| `mount(string $directory, string $pathname = '/')` | A real directory with its subdirectories under a virtual directory. A directory mounted earlier is searched first. |
+| `find(string $pathname, ?FileInterface $from = null)` | Finds a file, `null` when there is none. |
+
+`add()` and `link()` throw `FFI\Preprocessor\FileSystem\Exception\InvalidPathException`
+for a name that is the root. `link()` throws `FileNotFoundException` when the target does
+not exist, `mount()` throws `DirectoryNotFoundException` when the directory does not exist.
+
+The files of a mounted directory are seen as they are at the moment of the lookup. Files
+added with `add()` and `link()` are searched before the mounted directories.
+
+```php
+use FFI\Preprocessor\FileSystem\VirtualFileSystem;
+
+$files = new VirtualFileSystem();
+$files->add('sys/a.h', '');
+$files->add('sys/b.h', '');
+
+echo $files->find('sys/a.h')?->pathname . "\n";
+echo json_encode($files->find('a.h')?->pathname) . "\n";
+echo $files->find('a.h', $files->find('sys/b.h'))?->pathname . "\n";
+echo $files->find('../../sys/a.h')?->pathname . "\n";
+
+// /sys/a.h
+// null
+// /sys/a.h
+// /sys/a.h
+```
+
+The second argument of `find()` is the including file: a name that is not absolute is
+searched in the directory of that file first, which is what `#include "name.h"` does. A
+file found here is a `Phplrt\Contracts\Source\FileInterface` with a virtual pathname that
+starts with `/`.
+
+## Real files
+
+The files of the disk are found by `RealFileSystem`, which every preprocessor has. An
+absolute pathname is read from the disk as it is, `#include "../common.h"` in a real file
+is relative to its directory. A string or a stream has nothing to be relative to.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+
+echo $pre->process(new SplFileInfo(__DIR__ . '/include/main.h'));
+
+// typedef int id_t;
+// int main_h;
+```
+
+Here `main.h` includes `"common/types.h"`, and the file is read from `include/common/types.h`
+next to it.
+
+Whether a pathname is absolute is decided by a `PathMatcherInterface`. The default one
+accepts the pathnames of Unix (`/dir`) and of Windows (`C:\dir`, `\\server\share`) both,
+so a header with a Windows path is understood on Linux too. You can give another matcher
+to `VirtualFileSystem` and `RealFileSystem`: `UnixPathMatcher`, `WindowsPathMatcher` or
+your own.
+
+## Your own file system
+
+A file system is an object of `FFI\Preprocessor\FileSystem\FileSystemInterface` with one
+method, `find(string $pathname, ?FileInterface $from = null): ?FileInterface`. Give it to
+the constructor to search it after the two standard ones, for example to read headers from
+an archive or a database:
+
+```php
+use FFI\Preprocessor\FileSystem\FileSystemInterface;
+use FFI\Preprocessor\Preprocessor;
+use Phplrt\Contracts\Source\FileInterface;
+use Phplrt\Source\VirtualSource;
+
+$headers = new class implements FileSystemInterface {
+    public function find(string $pathname, ?FileInterface $from = null): ?FileInterface
+    {
+        return match ($pathname) {
+            'db.h' => VirtualSource::createFromString('/db/db.h', 'int from_db;'),
+            default => null,
+        };
+    }
+};
+
+echo new Preprocessor(files: $headers)->process("#include <db.h>\n");
+
+// int from_db;
+```
+
+`FFI\Preprocessor\FileSystem\CompoundFileSystem` takes a list of file systems, asks them
+in the order of the list and returns the first file found.

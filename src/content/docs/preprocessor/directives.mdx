@@ -1,0 +1,99 @@
+---
+title: "Directives"
+description: "The preprocessing directives that are executed: define, undef, error, warning, pragma, and how unknown ones are treated."
+sidebar:
+  label: Directives
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every directive is executed by a handler registered under its name in `$pre->directives`.
+These handlers are there from the start:
+
+| Directive | Page |
+|---|---|
+| `#if`, `#ifdef`, `#ifndef`, `#elif`, `#elifdef`, `#elifndef`, `#else`, `#endif` | [Conditions](../conditionals/) |
+| `#include`, `#embed` | [Include and embed](../include/) |
+| `#define`, `#undef` | below |
+| `#error`, `#warning` | [Diagnostics](../diagnostics/) |
+| `#pragma` | below |
+
+A lone `#` (the null directive) and a line like `# 42 "file.h"`, where `#` is not followed
+by a name, are skipped.
+
+## Unknown directives
+
+A directive that has no handler, such as a misspelled `#defnie`, throws
+`FFI\Preprocessor\Directive\Exception\UnknownDirectiveException`. The listener of
+diagnostics does not see it, so `NullDiagnosticListener` does not hide it.
+Unknown directives in a skipped group (`#if 0`) are ignored.
+
+`#line` is one of them, see [limitations](../limitations/).
+
+## Define and undef
+
+`#define` makes object-like and function-like macros, as in C, and `#undef` removes a
+macro. The result of a run is available in [`Result`](../result/), the macros of the
+[configuration](../macros/) are what a run starts with.
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$result = new Preprocessor()->process(<<<'C'
+    #define PI 3
+    #define AREA(r) (PI * (r) * (r))
+    #undef PI
+    #define PI 3.14
+
+    double a = AREA(2);
+    C);
+
+echo $result;
+
+// double a = (3.14 * (2) * (2));
+```
+
+The standard names that cannot be defined are not protected: `#define __FILE__ x`
+silently replaces the predefined macro. Redefining a macro in a different way is not
+reported either.
+
+A body that does not start with an identifier, or a malformed parameter list, throws
+`InvalidDirectiveBodyException`:
+
+```php
+use FFI\Preprocessor\Exception\PreprocessorException;
+use FFI\Preprocessor\Preprocessor;
+
+try {
+    echo new Preprocessor()->process("#define 1X\n");
+} catch (PreprocessorException $e) {
+    echo $e::class . ': ' . $e->getMessage() . "\n";
+}
+
+// FFI\Preprocessor\Directive\Exception\InvalidDirectiveBodyException: #define expects an identifier as a macro name
+```
+
+## Pragma
+
+`#pragma once` is executed: the file is included once and skipped each next time. Any
+other pragma is passed to the output as it is, for the next reader of the text. To react
+to a pragma yourself, see [custom directives](../custom-directives/#pragma-processors).
+
+```php
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor();
+$pre->files->add('config.h', "#pragma once\nint config;\n");
+
+echo $pre->process("#include \"config.h\"\n#include \"config.h\"\n#pragma pack(1)\n");
+
+// int config;
+// #pragma pack(1)
+```
+
+<Aside type="caution">
+`#pragma once` recognizes a file by its pathname. The same real file linked or mounted
+under two virtual names is included twice. Real files are compared by their real path,
+so `dir/../dir/a.h` is the same file as `dir/a.h`.
+</Aside>

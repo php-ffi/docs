@@ -1,0 +1,180 @@
+---
+title: "Presets"
+description: "What a compiler knows before the header: the extensions of C23 it accepts and the typedef names built into it."
+sidebar:
+  label: Presets
+  order: 6
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A header rarely starts from nothing. GCC accepts `__attribute__`, MSVC knows `__int64` and PHP FFI
+knows `uint8_t` without any `#include`. A **preset** is that knowledge as data, an object of
+`FFI\Parser\Preset` with two read-only properties:
+
+| Property | Type | Meaning |
+|---|---|---|
+| `features` | `list<Feature>` | The extensions of C23 the parser accepts. |
+| `typedefNames` | `list<non-empty-string>` | Identifiers read as typedef names without a declaration in the header. |
+
+The preset is the `preset` argument of the [`Parser`](../usage/#constructor-options) constructor.
+
+## Why the names matter
+
+Without the typedef names the tree is not unambiguous. In `sizeof(uint8_t[4])` the name `uint8_t` is
+a type if the compiler knows it, and a variable otherwise:
+
+```php
+use FFI\Parser\Parser;
+use FFI\Parser\Preset;
+
+$source = 'int a = sizeof(uint8_t[4]);';
+
+foreach ([Preset::default(), Preset::c23()] as $preset) {
+    $initializer = new Parser(preset: $preset)->parse($source)[0]->initializer;
+
+    echo new ReflectionClass($initializer)->getShortName() . "\n";
+}
+
+// SizeOfTypeExpression
+// SizeOfExpression
+```
+
+With the default preset it is the size of an array of 4 `uint8_t` elements, like `count([1, 2, 3, 4])`
+in PHP. With the preset of C23 `uint8_t` is an unknown name, and the expression is the `sizeof` of
+the 4th element of the array `uint8_t`, like `count($uint8_t[4])`.
+
+A declaration in the header hides a name of the preset, so `int uint8_t; int a = sizeof(uint8_t);`
+gives the second reading with every preset. The [transformers](../transformers/) do the work, a
+`Parser` hands them `typedefNames` of its preset.
+
+## Built-in presets
+
+| Factory | Contents |
+|---|---|
+| `Preset::default()` | Every feature and the typedef names of every compiler. The default of `Parser`. |
+| `Preset::c23()` | C23 itself: no extensions and no typedef names. |
+| `Preset::empty()` | The same as `c23()`: no features and no names. A starting point for a custom one. |
+| `Preset::gcc()` | The extensions and the built-in types of GCC (`__builtin_va_list`, `__int128`, `__float128`...). |
+| `Preset::clang(ClangTarget $target = ClangTarget::All, bool $isMsExtensionsEnabled = false)` | Clang: the extensions of GCC and Clang, the built-in types of the target. `isMsExtensionsEnabled` is `-fms-extensions` and adds the extensions and the names of MSVC. |
+| `Preset::msvc()` | The extensions of MSVC and its types (`__int8`...`__int64`, `__wchar_t`). |
+| `Preset::php()` | What `FFI::cdef()` accepts: the grammar of PHP FFI and its types (`uint8_t`, `size_t`, `va_list`...). |
+
+```php
+use FFI\Parser\Parser;
+use FFI\Parser\Preset;
+use FFI\Parser\Preset\ClangTarget;
+
+$parser = new Parser(preset: Preset::php());
+
+$clang = Preset::clang(ClangTarget::AArch64, isMsExtensionsEnabled: true);
+```
+
+`ClangTarget` is an enum of the architectures whose types Clang knows: `All`, `AArch64`, `PowerPc`,
+`RiscV`, `WebAssembly`, `AmdGpu`, `SpirV`. `All` joins the types of every architecture.
+
+To check a header for `FFI::cdef()` use `Preset::php()`: the parser then rejects what PHP FFI does not
+accept, such as block pointers or `__forceinline`, and accepts what it does, like `int bool;`.
+
+## Your own preset
+
+Pass the features and the names to the constructor. Both arguments are optional:
+
+```php
+use FFI\Parser\Parser;
+use FFI\Parser\Preset;
+use FFI\Parser\Preset\Feature;
+
+$preset = new Preset(
+    features: [Feature::ComplexIntegers],
+    typedefNames: ['uint8_t', 'size_t'],
+);
+
+$declaration = new Parser(preset: $preset)->parse('size_t length;')[0];
+
+echo $declaration->type::class . "\n";
+echo $declaration->type->name->value . "\n";
+
+// FFI\Parser\Node\Type\NamedType
+// size_t
+```
+
+## Features
+
+A feature is an extension of C23: a construct of the syntax of the compiler, or a constraint of C23
+that the compiler does not check. If the preset does not have a feature, then
+
+- the code that needs it is a `SyntaxErrorException` with the message
+  `Syntax error, the extension "Name" is not enabled`, which points to the keyword of the
+  extension, or
+- if the extension only lifts a constraint, a [validator rule](../validators/#extension-rules)
+  stays in force and rejects the code with a `ValidationException`.
+
+```php
+use FFI\Parser\Exception\SyntaxErrorException;
+use FFI\Parser\Parser;
+use FFI\Parser\Preset;
+
+try {
+    new Parser(preset: Preset::c23())->parse('int * __attribute__((unused)) p;');
+} catch (SyntaxErrorException $e) {
+    echo $e->getMessage() . "\n";
+}
+
+// Syntax error, the extension "GnuAttributes" is not enabled
+```
+
+`Feature::getRuleClasses()` lists the validator rules that the feature removes, an empty list for
+a feature that is a syntax error without it. `Preset::isRuleRemoved($rule)` asks whether a preset
+removes a rule. `Parser` uses it to drop the rules of the default and of the given lists.
+
+<Aside type="note">
+`Parser::validate()` does not look at the features: it accepts every extension the grammar knows.
+</Aside>
+
+`FFI\Parser\Preset\Feature` is an enum without values. All its cases:
+
+| Case | Accepts |
+|---|---|
+| `GnuAttributes` | `__attribute__((aligned(8)))` |
+| `AsmLabels` | `int f(void) __asm__("_f");` |
+| `AsmDeclarations` | `__asm__("nop");` at the file scope |
+| `GnuKeywordSpellings` | `__const__`, `__restrict`, `__inline`, `__thread` |
+| `MsKeywordSpellings` | `__inline`, `__restrict`, `__alignof`, `__typeof__`, `__typeof_unqual__` |
+| `ExtensionKeyword` | `__extension__` |
+| `DeclSpec` | `__declspec(dllimport)` |
+| `TrailingDeclSpec` | `int f(void) __declspec(dllimport);`, PHP FFI |
+| `CallingConventions` | `__cdecl`, `__stdcall`, `__fastcall`, `__vectorcall` |
+| `TrailingCallingConventions` | `int f(void) __cdecl;`, PHP FFI |
+| `SpecifierCallingConventions` | `__cdecl int f(void);`, `int __cdecl;` |
+| `ThisCallConvention` | `__thiscall` |
+| `MsCallingConventions` | `__clrcall`, `__preserve_none` |
+| `ClangCallingConventions` | `__regcall`, `__pascal` |
+| `PointerModifiers` | `int * __ptr64 p;` |
+| `BasedPointers` | `void __based(base) *p;` |
+| `ForceInline` | `__forceinline` |
+| `MsIntegerSuffixes` | `1i64`, `1ui64` |
+| `OptionalLastMemberSemicolon` | `struct S { int a };` |
+| `KeywordIdentifiers` | `int bool;`, `enum { false, true };`, PHP FFI |
+| `EmptyRecords` | `struct S {};` |
+| `EmptyEnums` | `enum E {};` |
+| `ExtraSemicolons` | `int a;;` and `;` among the members |
+| `AlignOfExpressions` | `__alignof__ x` |
+| `BuiltinTypeArguments` | `__builtin_offsetof(struct S, a)` |
+| `StatementExpressions` | `({ int y = x; y * 2; })` |
+| `ComplexIntegers` | `_Complex int` |
+| `ModifiedTypedefNames` | `unsigned __int64` |
+| `GnuFlexibleArrayMembers` | `union U { int a[]; };` |
+| `TaggedAnonymousMembers` | `struct S { struct T; };` |
+| `ImaginaryConstants` | `2.0i`, `3j` |
+| `Float128Suffix`, `Float80Suffix` | `1.0q`, `1.0w` |
+| `EscapeE` | `"\e"` |
+| `UnknownEscapes` | `"\q"`: an escape sequence of no meaning is the character itself |
+| `RangeDesignators` | `[0 ... 3] = 1` |
+| `OmittedConditionalOperand` | `a ?: b` |
+| `ComplexParts` | `__real__ z`, `__imag__ z` |
+| `BlockPointers` | `void (^callback)(int);` |
+| `Nullability` | `int * _Nonnull p;` |
+| `PointerAuth` | `void * __ptrauth(1, 0, 42) p;` |
+| `OctalPrefix` | `0o17`, as in C2y |
+| `GenericTypeOperand` | `_Generic(int, int: 1)`, as in C2y |

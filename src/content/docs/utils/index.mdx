@@ -1,0 +1,16 @@
+---
+title: "Utilities"
+description: "Small packages that solve the runtime chores of FFI code: checking the extension, finding a library, changing the working directory."
+sidebar:
+  label: Overview
+  order: 0
+---
+
+Three small packages that solve the runtime chores around `FFI::cdef()`. Each is
+installed separately and supports PHP 7.4 or later.
+
+| Package | Purpose |
+|---|---|
+| [Env](env/) · `ffi/env` | Tells whether the FFI extension can be used in the current runtime, and why not. |
+| [Location](location/) · `ffi/location` | Resolves the physical pathname of a binary the way the OS loader does. |
+| [Work Directory](work-directory/) · `ffi/work-directory` | Reads and changes the working directory of the process, thread-safe builds included. |

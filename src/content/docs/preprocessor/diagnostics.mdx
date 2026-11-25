@@ -1,0 +1,117 @@
+---
+title: "Diagnostics"
+description: "How #error, #warning and other messages of a run reach your code: listeners, the recorded list and PSR-3 logging."
+sidebar:
+  label: Diagnostics
+  order: 9
+---
+
+`#error` and `#warning` do not stop the run by themselves: they are reported to a
+listener, and the listener decides what to do. The preprocessor reports the other
+problems that the run can survive the same way: a file that `#include` cannot find, extra
+tokens at the end of a directive.
+
+A message is an object of `FFI\Preprocessor\Diagnostic\Diagnostic`:
+
+| Property | Meaning |
+|---|---|
+| `severity` | `Severity::Warning` or `Severity::Error`, the enum `FFI\Preprocessor\Diagnostic\Diagnostic\Severity`, with the values `warning` and `error`. |
+| `message` | The text. For `#error` and `#warning` it is the directive with its body: `#warning careful`. |
+| `source` | The file the message is about, a phplrt `FileInterface`. |
+| `offset`, `length` | The place of the fragment in the file in bytes, `length` is `0` when it is unknown. |
+
+`findPosition()` returns the line and the column of the fragment (`->line`, `->column`),
+or `null` when the file cannot be read again.
+
+## Listeners
+
+A listener is an object of `FFI\Preprocessor\Diagnostic\DiagnosticListenerInterface` with
+one method, `notify(Diagnostic $diagnostic): void`. It is the `diagnostic` argument of the
+`Preprocessor`. The ready ones are in `FFI\Preprocessor\Diagnostic\DiagnosticListener`:
+
+| Class | Does |
+|---|---|
+| `ThrowingDiagnosticListener` | The default. An error throws `DiagnosticException`, a warning is skipped. |
+| `StreamDiagnosticListener` | Writes a line per message to a stream, as compilers do. |
+| `LoggerDiagnosticListener` | Passes the message to a [PSR-3](https://www.php-fig.org/psr/psr-3/) logger. |
+| `NullDiagnosticListener` | Does nothing: errors do not stop the run either. |
+| `CompoundListener` | Passes a message to every listener of a list. |
+
+```php
+use FFI\Preprocessor\Diagnostic\DiagnosticListener\StreamDiagnosticListener;
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor(diagnostic: new StreamDiagnosticListener(STDOUT));
+
+echo $pre->process("#define A 1\n#warning careful\nint x;\n");
+
+// {entrypoint}:2:1: warning: #warning careful
+// int x;
+```
+
+`StreamDiagnosticListener` takes a stream open for writing, anything else throws
+`FFI\Preprocessor\Exception\InvalidStreamException`. `StreamDiagnosticListener::createDefault()`
+writes to the standard error output.
+
+`LoggerDiagnosticListener` uses the severity as the PSR-3 level (`warning` or `error`) and
+the text as the message. The context has `file`, `line`, `column`, `offset` and `length`.
+
+```php
+use FFI\Preprocessor\Diagnostic\DiagnosticListener\CompoundListener;
+use FFI\Preprocessor\Diagnostic\DiagnosticListener\LoggerDiagnosticListener;
+use FFI\Preprocessor\Diagnostic\DiagnosticListener\StreamDiagnosticListener;
+use FFI\Preprocessor\Preprocessor;
+use Psr\Log\AbstractLogger;
+
+$logger = new class extends AbstractLogger {
+    public function log($level, string|Stringable $message, array $context = []): void
+    {
+        echo $level . ': ' . $message . ' ' . json_encode($context) . "\n";
+    }
+};
+
+$pre = new Preprocessor(diagnostic: new CompoundListener([
+    new LoggerDiagnosticListener($logger),
+    new StreamDiagnosticListener(STDOUT),
+]));
+
+$pre->process("#warning one\n")->getDiagnostics();
+
+// warning: #warning one {"file":"{entrypoint}","line":1,"column":1,"offset":0,"length":12}
+// {entrypoint}:1:1: warning: #warning one
+```
+
+Your own listener is a class with `notify()`. To stop the run, throw an exception from it:
+it leaves the `Result` as it is thrown by any other failure.
+
+## Reading the messages afterwards
+
+A run keeps every message it reported, whatever the listener is, and
+`Result::getDiagnostics()` returns them as a list. The message that made the default
+listener throw is in the list too.
+
+```php
+use FFI\Preprocessor\Diagnostic\DiagnosticListener\NullDiagnosticListener;
+use FFI\Preprocessor\Preprocessor;
+
+$pre = new Preprocessor(diagnostic: new NullDiagnosticListener());
+
+$result = $pre->process("#error boom\n#include <missing.h>\nok\n");
+
+echo $result;
+
+foreach ($result->getDiagnostics() as $diagnostic) {
+    echo $diagnostic->severity->name . ' at line ' . $diagnostic->findPosition()?->line
+        . ': ' . $diagnostic->message . "\n";
+}
+
+// ok
+// Error at line 1: #error boom
+// Error at line 2: #include: file "missing.h" is not found
+```
+
+## What is not a diagnostic
+
+A failure the run cannot go on after is an exception, not a message: a malformed `#if`, a
+missing `#endif`, an unknown directive, an unclosed macro invocation. See
+[errors](../errors/).
