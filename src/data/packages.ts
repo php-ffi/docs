@@ -51,7 +51,7 @@ export const packages: Package[] = [
     {
         title: 'Location',
         name: 'ffi/location',
-        php: '7.4',
+        php: '8.1',
         docs: 'utils/location/',
         repo: 'https://github.com/php-ffi/location',
         summary: 'Resolves the physical pathname of a binary the way the OS loader does.',

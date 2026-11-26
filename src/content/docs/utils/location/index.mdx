@@ -1,6 +1,6 @@
 ---
 title: "Location"
-description: "Finds the physical path of a shared library the way the operating system loader does."
+description: "Finds the file of a shared library the way the dynamic linker of the operating system searches it."
 sidebar:
   label: Overview
   order: 0
@@ -8,9 +8,10 @@ sidebar:
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-`ffi/location` finds the physical path of a shared library (`.dll`, `.so`, `.dylib`)
-by its name. It looks in the same places and in the same order as the loader that
-`FFI::cdef()` relies on, so the path it returns is the file the loader would pick.
+`ffi/location` finds the file of a shared library (`.dll`, `.so`, `.dylib`) by the
+name you would pass to `FFI::cdef()`. It repeats the search of the dynamic linker of
+the operating system in pure PHP: the same directories, the same order, the same
+rules for the names.
 
 ## Installation
 
@@ -18,13 +19,8 @@ by its name. It looks in the same places and in the same order as the loader tha
 composer require ffi/location
 ```
 
-Requires PHP 7.4 or later. The package does not need `ext-ffi`: it only looks for
+Requires PHP 8.1 or later. The package does not need `ext-ffi`: it only looks for
 files, loading them is up to you.
-
-<Aside type="note">
-The package supports PHP 7.4, the examples on this page use the syntax of the
-current PHP version.
-</Aside>
 
 ## Public API
 
@@ -33,9 +29,9 @@ The whole public API is the static methods of `FFI\Location\Locator`. Everything
 
 | Method | Returns | Meaning |
 |---|---|---|
-| `Locator::exists(string $name)` | `bool` | Whether the library is found. |
-| `Locator::pathname(string $name)` | `?string` | The real path of the library, or `null`. |
-| `Locator::resolve(string ...$libraries)` | `?string` | The path of the first library that is found, or `null`. |
+| `Locator::exists(string $name, Bitness $bitness = Bitness::Auto)` | `bool` | Whether the linker would find the library. |
+| `Locator::pathname(string $name, Bitness $bitness = Bitness::Auto)` | `?string` | The pathname of the library, or `null`. |
+| `Locator::resolve(string ...$libraries)` | `?string` | The pathname of the first library that is found, or `null`. |
 
 ## Checking existence
 
@@ -51,31 +47,31 @@ var_dump(Locator::exists('no-such-library'));
 
 ## Getting the path
 
-`pathname()` returns an absolute path with symbolic links resolved
-([`realpath()`](https://www.php.net/manual/en/function.realpath.php)), or `null`
-when the library is not found. On Linux a name like `libGL.so` usually is a link, so
-the result is the real file, for example `/usr/lib/x86_64-linux-gnu/libGL.so.1.7.0`.
+`pathname()` returns the file the linker would open, or `null`. The pathname is
+absolute, symbolic links are kept: `libz.so.1` gives `/lib/x86_64-linux-gnu/libz.so.1`, not the file it points to.
 
 ```php
 use FFI\Location\Locator;
 
 echo Locator::pathname('kernel32') . "\n";
 
-// C:\Windows\System32\kernel32.dll
+// C:\WINDOWS\System32\kernel32.dll
 ```
 
-An empty name and a name with a null byte give `null`.
+Pass the result to `FFI::cdef()`: an absolute pathname is loaded as is, without a
+second search. An empty name and a name with a null byte give `null`.
 
-The name is searched in the directories of the platform, see
-[the search order](#search-order). Two kinds of names are handled differently:
+## Names
 
-- A name with a directory separator is a path. It is not searched in the
-  directories: the file is checked as is, a relative path is relative to the working
-  directory. On Windows a colon counts as a separator too, so `C:name.dll` is a path.
+A name is interpreted the way `FFI::cdef()` interprets it on the current system:
+
+- A name with a directory separator (on Windows also `\` and `:`) is a pathname: it
+  is checked as is, a relative one against the working directory.
 - On Windows `.dll` is appended to a name without an extension. A trailing dot turns
-  it off and is dropped: `kernel32.` looks for a file named `kernel32` and does not
-  find `kernel32.dll`. On Linux and macOS the name is used exactly as given, the
-  package does not add `lib` or the suffix.
+  it off: `user32.` looks for a file named `user32`.
+- On Linux and macOS the name is used exactly as given: no `lib` prefix, no suffix,
+  no version. `libfoo.so` does not match `libfoo.so.1`, like in the linker: the
+  unversioned link is usually installed by the development package only.
 
 ```php
 use FFI\Location\Locator;
@@ -83,17 +79,18 @@ use FFI\Location\Locator;
 var_dump(Locator::pathname('C:/Windows/System32/user32.dll'));
 var_dump(Locator::pathname('user32.dll'));
 var_dump(Locator::pathname('user32.'));
+var_dump(Locator::pathname('C:user32.dll'));
 
 // string(30) "C:\Windows\System32\user32.dll"
-// string(30) "C:\Windows\System32\user32.dll"
+// string(30) "C:\WINDOWS\System32\user32.dll"
+// NULL
 // NULL
 ```
 
 ## Choosing from several names
 
 The same library is named differently on each system. `resolve()` takes the names in
-the order of preference and returns the path of the first one that exists, or `null`
-if none does. Use it together with `FFI::cdef()`:
+the order of preference and returns the pathname of the first one that is found:
 
 ```php
 use FFI\Location\Locator;
@@ -108,63 +105,100 @@ echo $ffi->abs(-42) . "\n";
 // 42
 ```
 
-Because the names are checked one after another, the result depends on the order of
-the arguments, not on the order of the directories.
+The names are checked one after another, so the result depends on the order of the
+arguments, not on the order of the directories.
 
-`Locator` is stateless and does not cache results: every call looks at the file
-system again.
+## Bitness
+
+By default only the libraries of the bitness of the PHP process are found, the only
+ones `FFI::cdef()` can load: a 32-bit library is skipped by a 64-bit PHP and the
+search goes on. The second argument of `exists()` and `pathname()` selects the
+bitness with the `FFI\Location\Bitness` enum. `resolve()` always uses
+`Bitness::Auto`.
+
+| Case | Libraries |
+|---|---|
+| `Bitness::Auto` | Of the bitness of the PHP process, the default. |
+| `Bitness::Bits32` | 32-bit only. |
+| `Bitness::Bits64` | 64-bit only, x86-64 and ARM64. |
+
+```php
+use FFI\Location\Bitness;
+use FFI\Location\Locator;
+
+$wow64 = 'C:/Windows/SysWOW64/kernel32.dll';
+
+var_dump(Locator::pathname('kernel32', Bitness::Bits32));
+var_dump(Locator::pathname($wow64, Bitness::Bits32));
+
+// NULL
+// string(32) "C:\Windows\SysWOW64\kernel32.dll"
+```
+
+The 32-bit `kernel32.dll` lives in `SysWOW64`, which is not in the search order of
+a 64-bit process, so only the pathname finds it. The bitness is read from the header
+of the file: ELF on Linux, PE on Windows, Mach-O on macOS, where a universal binary
+matches every bitness it contains. A file that is not a library of the operating
+system is never found.
 
 ## Search order
 
-A name that is not a path is searched in the directories of the platform, in the order
-listed below. The first existing file wins, so a directory earlier in the list
-shadows the later ones. The platform is chosen by `PHP_OS_FAMILY`: `Windows`,
-`Darwin` (macOS), anything else is searched as Linux.
+A name without a directory separator is searched in the directories below, in this
+order. The platform is chosen by `PHP_OS_FAMILY`: `Windows`, `Darwin` (macOS),
+anything else is searched as Linux.
 
 <Tabs>
 <TabItem label="Windows">
 
-1. The directory of the PHP binary (`dirname(PHP_BINARY)`).
-2. `%SystemRoot%\System32`, then `%SystemRoot%` (the `windir` variable is used when
-   `SystemRoot` is not set).
-3. The current working directory.
-4. The directories of the `PATH` variable. Entries in double quotes are accepted.
+The search order of `LoadLibrary` in the safe DLL search mode:
 
-The file name is the given name with `.dll` appended when it has no extension.
+1. The directory of the PHP binary (`PHP_BINARY`).
+2. `%SystemRoot%\System32`, `%SystemRoot%\System` and `%SystemRoot%`.
+3. The working directory.
+4. The directories of `PATH`.
 
 </TabItem>
 <TabItem label="Linux">
 
-1. The directories of `LD_LIBRARY_PATH`. Both a colon and a semicolon separate the
-   entries, as in glibc.
-2. The directories of `/etc/ld.so.conf`, including the files it pulls in with
-   `include` (relative patterns are resolved against the directory of the including
-   file, an already read file is skipped).
-3. The directories of the binary cache `/etc/ld.so.cache`, the format of the glibc
-   and the older one are both read.
-4. `/lib64`, `/usr/lib64`, `/lib`, `/usr/lib`, `/usr/local/lib`.
-5. The current working directory.
+1. The directories of `LD_LIBRARY_PATH`, separated by a colon or a semicolon.
+2. The directories where the linker cache `/etc/ld.so.cache` has the library. The
+   pathnames are read from it like the `strings` utility does, so every version of
+   the cache format is supported.
+3. `/lib64`, `/usr/lib64`, `/lib`, `/usr/lib`.
 
-The name is used as is.
+A file that is not an ELF object, like the linker script `libc.so`, is skipped.
 
 </TabItem>
 <TabItem label="macOS">
 
 1. The directories of `DYLD_LIBRARY_PATH`.
-2. The directories of `DYLD_FALLBACK_LIBRARY_PATH`.
-3. `$HOME/lib`.
-4. `/usr/local/lib`, `/usr/lib`, `/opt/homebrew/lib`.
-5. The current working directory.
-
-The name is used as is.
+2. The directories of `DYLD_FALLBACK_LIBRARY_PATH`, or `/usr/local/lib` and
+   `/usr/lib` when it is not set.
 
 </TabItem>
 </Tabs>
 
-The loader directories come first and the working directory is a fallback on
-Linux and macOS, so a library in the current directory does not replace a system
-one with the same name. On Windows the working directory is checked after the system
-directories but before `PATH`.
+The working directory is never searched on Linux and macOS: a library planted there is
+not found.
 
-Empty entries are skipped. Unset or empty environment variables are ignored, and so
-are missing configuration files: the search simply continues with the next directory.
+## Limitations
+
+The package repeats the search without calling the operating system, so it does not
+know some of the things the linker knows:
+
+- **Everywhere:** the libraries already loaded into the process, and the `RPATH` and
+  `RUNPATH` of the executable. Executables are not told apart from libraries.
+- **Linux:** the `glibc-hwcaps` subdirectories and the `$ORIGIN`, `$LIB` and
+  `$PLATFORM` tokens. The musl libc does not use `/etc/ld.so.cache`.
+- **macOS:** since macOS 11 the system libraries live in the dyld shared cache and
+  are not files, so they are not found.
+- **Windows:** KnownDLLs, API sets (`api-ms-*`) and the directories added with
+  `SetDllDirectory`. In thread-safe builds the working directory is PHP's virtual
+  one. Under a web server module like Apache `PHP_BINARY` is not the executable of
+  the process.
+
+<Aside type="caution">
+The returned file is the one the linker would load, so keep the searched directories
+(`LD_LIBRARY_PATH`, `PATH` and, on Windows, the working directory) out of reach of
+untrusted users.
+</Aside>
