@@ -13,7 +13,7 @@ The kind of failure is the class:
 |---|---|
 | `SyntaxErrorException` | The header is not valid, or uses an extension the [preset](../presets/) does not accept. |
 | `ValidationException` | A validator rejects the tree, e.g. `long float x;`. |
-| `InternalException` | The source cannot be read. |
+| `InternalException` | The source cannot be read (a missing file, a value of an unsupported type) or cannot be analyzed for a reason other than its code. |
 | `TraverserException` | A transformer or visitor broke the tree. |
 
 ```php
@@ -86,6 +86,6 @@ try {
     }
 }
 
-// 0: Invalid combination of type specifiers `long float`
+// 0: Type specifiers `long float` should not be combined
 // 19: Element type of an array should not be a function
 ```

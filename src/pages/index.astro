@@ -19,13 +19,11 @@ SQLITE_API int sqlite3_open(
     sqlite3 **ppDb
 );`;
 
-const program = `
-$preprocessor = new FFI\\Preprocessor\\Preprocessor();
+const program = `$preprocessor = new FFI\\Preprocessor\\Preprocessor();
 $parser = new FFI\\Parser\\Parser();
 
 $declarations = new SplFileInfo('sqlite3.h')
     |> $preprocessor->process(...)
-    |> strval(...)
     |> $parser->parse(...);
 
 foreach ($declarations as $declaration) {

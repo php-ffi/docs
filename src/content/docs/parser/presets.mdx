@@ -49,10 +49,13 @@ foreach ([Preset::default(), Preset::c23()] as $preset) {
 | `Preset::gcc()` | GCC extensions and built-in types. |
 | `Preset::clang()` | Clang and GCC extensions. Arguments: `ClangTarget $target`, `bool $isMsExtensionsEnabled` (`-fms-extensions`). |
 | `Preset::msvc()` | MSVC extensions and types (`__int64`...). |
-| `Preset::php()` | What `FFI::cdef()` accepts, with `uint8_t`, `size_t`... |
+| `Preset::php()` | C23 with the PHP FFI extensions and types (`uint8_t`, `size_t`...). |
 
-To check a header for `FFI::cdef()` use `Preset::php()`: it rejects what PHP
-FFI rejects, such as block pointers or `__forceinline`.
+To check a header for `FFI::cdef()` use `Preset::php()`: it rejects the
+extensions PHP FFI does not have, such as block pointers or `__forceinline`.
+The parts of C23 that PHP FFI does not support (attributes, `typeof`,
+function bodies) are still accepted, and the names and the types are not
+checked, so `FFI::cdef()` has the final word.
 
 An extension the preset does not accept is a `SyntaxErrorException`:
 

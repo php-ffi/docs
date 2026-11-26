@@ -39,6 +39,7 @@ What the nodes are is described in [Working with the AST](../ast/).
 | Value | Meaning |
 |---|---|
 | `string` | The code of the header, never a path. |
+| `Stringable` | The code of the header, such as the `Result` of the preprocessor. |
 | `SplFileInfo` | A file. |
 | `resource` | A stream. |
 | `Phplrt\Contracts\Source\ReadableInterface` | A phplrt source. |
@@ -55,8 +56,7 @@ skipped: the parser does not interpret directives.
 ## After the preprocessor
 
 The parser needs **preprocessed** source. `Preprocessor::process()` returns a
-`Result` object that the parser does not accept directly: cast it to a
-string. See also [the preprocessor](/preprocessor/with-parser/).
+`Result` object, which the parser accepts as is. See also [the preprocessor](/preprocessor/with-parser/).
 
 ```php
 use FFI\Parser\Parser;
@@ -67,7 +67,7 @@ $result = new Preprocessor()->process(<<<'C'
     int buffer[SIZE];
     C);
 
-$declarations = new Parser()->parse((string) $result);
+$declarations = new Parser()->parse($result);
 
 echo $declarations[0]->type->size->raw . "\n";
 
@@ -78,7 +78,8 @@ echo $declarations[0]->type->size->raw . "\n";
 
 `Parser::validate()` returns `true` or `false` and builds no tree, so it is
 faster than `parse()`. It accepts every extension the grammar knows,
-whatever the preset.
+whatever the preset, and runs no validators, so `parse()` can still reject
+a header it accepts.
 
 ```php
 use FFI\Parser\Parser;

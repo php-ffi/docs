@@ -28,23 +28,22 @@ $pre->files->add('api.h', <<<'C'
 
 $source = $pre->process('#include "api.h"');
 
-$declarations = new Parser()->parse((string) $source);
+$declarations = new Parser()->parse($source);
 
 foreach ($declarations as $declaration) {
-    echo $declaration->name->value . "\n";
+    echo $declaration->name . "\n";
 }
 
 // point_t
 // point_len
 ```
 
-- `Parser::parse()` does not accept a `Result`: cast it to a string.
-- A declaration name is an `Identifier` node without `__toString()`,
-  read its `value`.
+`Parser::parse()` takes the `Result` as is, and the name of a declaration
+(an `Identifier` node) converts to a string.
 
 With `API_VERSION` set to `2` the other branch of the header is
 parsed.
 
-A failure of the preprocessor is thrown when the result is read, so
-the cast to a string belongs inside the `try` block, see
+A failure of the preprocessor is thrown when the result is read, by
+`parse()` too, so the call belongs inside the `try` block, see
 [diagnostics and errors](../diagnostics/).

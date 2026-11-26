@@ -29,7 +29,8 @@ The classes you meet at the root of a file:
 | `TagDeclaration` | `struct S { int a; };`, `enum E { A };` |
 | `StaticAssertDeclaration` | `static_assert(1, "ok");` |
 
-The first four have `name` (an `Identifier`, read `->value`) and `type`.
+The first four have `name` (an `Identifier`, read `->value` or cast it to a
+string) and `type`.
 Each declarator is a node of its own: `int a, *b;` gives two.
 
 ## Types
@@ -72,7 +73,8 @@ foreach ($declarations as $declaration) {
 ```
 
 Parts that may be absent are `null`: the name of an unnamed parameter, the
-value of an enumerator, the `specifiers` of a declaration.
+value of an enumerator, the `specifiers` of a declaration. The type of
+`unsigned long` is a `ModifiedType` with the modifiers and a `null` type.
 
 ## Functions
 
@@ -91,6 +93,11 @@ var_dump($function->type->isVariadic);
 // 1 s
 // bool(true)
 ```
+
+The list is written as in the source: `int f(void)` has one parameter of
+type `VoidType`, `int f()` has none. A function declared through a typedef
+name (`typedef int F(int); F g;`) is a `VariableDeclaration` with a
+`NamedType`.
 
 ## Walking the tree
 
