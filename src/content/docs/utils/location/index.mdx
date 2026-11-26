@@ -10,8 +10,8 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 `ffi/location` finds the file of a shared library (`.dll`, `.so`, `.dylib`) by the
 name you would pass to `FFI::cdef()`. It repeats the search of the dynamic linker of
-the operating system in pure PHP: the same directories, the same order, the same
-rules for the names.
+the operating system in pure PHP: its directories, its order and its rules for the
+names, within the [limitations](#limitations) below.
 
 ## Installation
 
@@ -47,8 +47,11 @@ var_dump(Locator::exists('no-such-library'));
 
 ## Getting the path
 
-`pathname()` returns the file the linker would open, or `null`. The pathname is
-absolute, symbolic links are kept: `libz.so.1` gives `/lib/x86_64-linux-gnu/libz.so.1`, not the file it points to.
+`Locator::pathname()` returns the file the linker would open, or `null`. A library found in
+the directories is returned as the linker finds it, symbolic links are kept:
+`libz.so.1` gives `/lib/x86_64-linux-gnu/libz.so.1`, not the file it points to.
+A relative pathname is made absolute, on Windows it is also resolved with
+[`realpath()`](https://www.php.net/manual/en/function.realpath.php).
 
 ```php
 use FFI\Location\Locator;
@@ -89,7 +92,7 @@ var_dump(Locator::pathname('C:user32.dll'));
 
 ## Choosing from several names
 
-The same library is named differently on each system. `resolve()` takes the names in
+The same library is named differently on each system. `Locator::resolve()` takes the names in
 the order of preference and returns the pathname of the first one that is found:
 
 ```php
@@ -112,8 +115,8 @@ arguments, not on the order of the directories.
 
 By default only the libraries of the bitness of the PHP process are found, the only
 ones `FFI::cdef()` can load: a 32-bit library is skipped by a 64-bit PHP and the
-search goes on. The second argument of `exists()` and `pathname()` selects the
-bitness with the `FFI\Location\Bitness` enum. `resolve()` always uses
+search goes on. The second argument of `Locator::exists()` and `Locator::pathname()` selects the
+bitness with the `FFI\Location\Bitness` enum. `Locator::resolve()` always uses
 `Bitness::Auto`.
 
 | Case | Libraries |
@@ -183,19 +186,99 @@ not found.
 
 ## Limitations
 
-The package repeats the search without calling the operating system, so it does not
-know some of the things the linker knows:
+The package repeats the search without calling the operating system, so in some
+cases its answer differs from what `FFI::cdef()` does:
 
-- **Everywhere:** the libraries already loaded into the process, and the `RPATH` and
-  `RUNPATH` of the executable. Executables are not told apart from libraries.
-- **Linux:** the `glibc-hwcaps` subdirectories and the `$ORIGIN`, `$LIB` and
-  `$PLATFORM` tokens. The musl libc does not use `/etc/ld.so.cache`.
-- **macOS:** since macOS 11 the system libraries live in the dyld shared cache and
-  are not files, so they are not found.
-- **Windows:** KnownDLLs, API sets (`api-ms-*`) and the directories added with
-  `SetDllDirectory`. In thread-safe builds the working directory is PHP's virtual
-  one. Under a web server module like Apache `PHP_BINARY` is not the executable of
-  the process.
+1. [Already loaded libraries](#1-already-loaded-libraries) are not found.
+2. [Paths built into PHP](#2-paths-built-into-php) are not searched.
+3. [Executables](#3-executables) are found like libraries.
+4. [Optimized builds](#4-optimized-builds) are not returned (Linux).
+5. [Placeholders](#5-placeholders) in paths are not expanded (Linux).
+6. [musl](#6-musl) directories are not read (Alpine Linux).
+7. [System libraries](#7-system-libraries) are not found (macOS).
+8. [KnownDLLs](#8-knowndlls) are not taken from `System32` (Windows).
+9. [API sets](#9-api-sets) are not resolved (Windows).
+10. [Added directories](#10-added-directories) are not searched (Windows).
+11. [The working directory of thread-safe PHP](#11-working-directory-of-thread-safe-php)
+    is not the one of the process (Windows).
+12. [Web server modules](#12-web-server-modules) have no application directory (Windows).
+
+### 1. Already loaded libraries
+
+Before searching, the linker checks whether a library with this name is already in
+memory, and reuses it. The package only looks at the disk. For example, PHP loads
+`php_ffi.dll` from its `ext` directory, so `FFI::cdef()` finds it by name, but
+`Locator::pathname('php_ffi.dll')` gives `null`: `ext` is not in the search order.
+
+### 2. Paths built into PHP
+
+The PHP binary can carry its own search directories (`RPATH`/`RUNPATH`, for example
+in a PHP built with `-Wl,-rpath,/opt/php/lib`). The linker searches them first, the
+package does not read them, so a library that is only in such a directory is not
+found.
+
+### 3. Executables
+
+A program is found like a library when it is an ELF file of the right bitness, like
+`Locator::pathname('/usr/bin/ls')`, or `Locator::pathname('cpp')` on Ubuntu, where `cpp` lies in
+`/usr/lib`. Loading it with `FFI::cdef()` fails: the linker checks the type of the
+file too and does not load programs as libraries.
+
+### 4. Optimized builds
+
+Since glibc 2.33 a library can have copies built for newer CPUs in
+`<directory>/glibc-hwcaps/x86-64-v3` and the like, and the linker prefers them on a
+CPU that supports them. The package returns the regular copy from `<directory>`,
+and does not find a library that exists only in such a subdirectory.
+
+### 5. Placeholders
+
+The linker replaces `$ORIGIN` (the directory of the program), `$LIB` (like
+`lib/x86_64-linux-gnu`) and `$PLATFORM` (like `x86_64`) in `LD_LIBRARY_PATH` and in
+pathnames. The package takes them literally, so `Locator::pathname('/usr/$LIB/libz.so.1')`
+gives `null`, although `FFI::cdef()` loads it.
+
+### 6. musl
+
+musl, the C library of Alpine Linux, has no linker cache `/etc/ld.so.cache`: its
+directories are listed in `/etc/ld-musl-<arch>.path`, which the package does not
+read. Only `LD_LIBRARY_PATH` and the default directories are searched.
+
+### 7. System libraries
+
+Since macOS 11 the system libraries, like `libSystem.B.dylib` or `libz.dylib`, are
+not files on disk but parts of the dyld shared cache. `Locator::pathname('libz.dylib')`
+gives `null`, although `FFI::cdef()` loads it.
+
+### 8. KnownDLLs
+
+For the system DLLs listed in the registry, like `shlwapi.dll`, Windows always
+takes the copy from `System32`. If a DLL with such a name also lies next to
+`php.exe`, the package returns that copy, the linker does not.
+
+### 9. API sets
+
+Names like `api-ms-win-core-synch-l1-2-0.dll` are virtual: Windows maps them to
+real DLLs, like `KERNELBASE.dll`. There are no such files, so the package gives
+`null`, or a stray file with this name found on `PATH`.
+
+### 10. Added directories
+
+Directories added to the search with `SetDllDirectory` or `AddDllDirectory`, by PHP
+or by an extension, are searched by the linker and not by the package.
+
+### 11. Working directory of thread-safe (ZTS) PHP
+
+In a thread-safe build the working directory is virtual: `chdir()` changes it for
+PHP and `getcwd()` returns it, but the working directory of the process, the one
+the linker searches, stays the same. The package uses `getcwd()`, so after
+`chdir()` it searches the new directory and the linker the old one.
+
+### 12. Web server modules
+
+Under a module like `php8apache2_4.dll` the application is the web server, but
+`PHP_BINARY` does not point to it. The package skips the application directory,
+the linker searches the directory of `httpd.exe`.
 
 <Aside type="caution">
 The returned file is the one the linker would load, so keep the searched directories
